@@ -1,0 +1,3 @@
+{
+  "extends": "@ERPTrisThom/config/tsconfig.base.json"
+}
