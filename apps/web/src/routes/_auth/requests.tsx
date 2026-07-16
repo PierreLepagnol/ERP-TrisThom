@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -9,6 +9,7 @@ const sources = ["manuel", "telephone", "1001traiteur"] as const;
 const statuses = [
   "nouveau",
   "a_qualifier",
+  "qualifie",
   "devis_a_preparer",
   "devis_envoye",
   "relance",
@@ -29,6 +30,7 @@ const sourceLabels: Record<Source, string> = {
 const statusLabels: Record<Status, string> = {
   nouveau: "Nouveau",
   a_qualifier: "À qualifier",
+  qualifie: "Qualifiée",
   devis_a_preparer: "Devis à préparer",
   devis_envoye: "Devis envoyé",
   relance: "Relance",
@@ -46,11 +48,15 @@ export const Route = createFileRoute("/_auth/requests")({
 
 function RequestsPage() {
   const searchParams = Route.useSearch();
+  const navigate = useNavigate();
   const { requests, createRequest, updateStatus } = useLocalCrm();
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "tous">("tous");
+  const location = useLocation();
+
+  if (location.pathname !== "/requests") return <Outlet />;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -150,8 +156,12 @@ function RequestsPage() {
         ) : (
           <div className="divide-y divide-stone-100">
             {filteredRequests?.map((request) => (
-              <article key={request._id} className="grid gap-4 px-6 py-5 md:grid-cols-[minmax(0,1fr)_11rem] md:items-center">
-                <div>
+              <article
+                key={request._id}
+                onClick={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })}
+                className="grid cursor-pointer gap-4 px-6 py-5 transition hover:bg-stone-50 md:grid-cols-[minmax(0,1fr)_11rem] md:items-center"
+              >
+                <div className="rounded-md outline-offset-4 focus:outline-[#8b1629]">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <h3 className="font-semibold">{request.contactName}</h3>
                     <span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-xs font-bold text-[#8b1629]">
@@ -171,6 +181,7 @@ function RequestsPage() {
                   Statut
                   <select
                     value={request.status}
+                    onClick={(event) => event.stopPropagation()}
                     onChange={(event) => handleStatusChange(request, event.target.value as Status)}
                     className="rounded-md border border-stone-200 bg-white px-2 py-2 text-sm font-semibold normal-case text-stone-900"
                   >
