@@ -1,4 +1,3 @@
-import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
 import type { ConvexQueryClient } from "@convex-dev/react-query";
 import { Toaster } from "@ERPTrisThom/ui/components/sonner";
 import type { QueryClient } from "@tanstack/react-query";
@@ -7,21 +6,10 @@ import {
   Outlet,
   Scripts,
   createRootRouteWithContext,
-  useRouteContext,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
-import { createServerFn } from "@tanstack/react-start";
-
-import { authClient } from "@/lib/auth-client";
-import { getToken } from "@/lib/auth-server";
-
-import Header from "../components/header";
 
 import appCss from "../index.css?url";
-
-const getAuth = createServerFn({ method: "GET" }).handler(async () => {
-  return await getToken();
-});
 
 export interface RouterAppContext {
   queryClient: QueryClient;
@@ -39,7 +27,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "My App",
+        title: "Bouillon Comptoir — CRM",
       },
     ],
     links: [
@@ -49,42 +37,23 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
       },
     ],
   }),
-
   component: RootDocument,
-  beforeLoad: async (ctx) => {
-    const token = await getAuth();
-    if (token) {
-      ctx.context.convexQueryClient.serverHttpClient?.setAuth(token);
-    }
-    return {
-      isAuthenticated: !!token,
-      token,
-    };
-  },
 });
 
 function RootDocument() {
-  const context = useRouteContext({ from: Route.id });
   return (
-    <ConvexBetterAuthProvider
-      client={context.convexQueryClient.convexClient}
-      authClient={authClient}
-      initialToken={context.token}
-    >
-      <html lang="en" className="dark">
-        <head>
-          <HeadContent />
-        </head>
-        <body>
-          <div className="grid h-svh grid-rows-[auto_1fr]">
-            <Header />
-            <Outlet />
-          </div>
-          <Toaster richColors />
-          <TanStackRouterDevtools position="bottom-left" />
-          <Scripts />
-        </body>
-      </html>
-    </ConvexBetterAuthProvider>
+    <html lang="fr">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        <div className="min-h-svh bg-[#f8f5f0] text-stone-900">
+          <Outlet />
+        </div>
+        <Toaster richColors />
+        <TanStackRouterDevtools position="bottom-left" />
+        <Scripts />
+      </body>
+    </html>
   );
 }

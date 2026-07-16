@@ -38,13 +38,25 @@ Leave this terminal once it finishes configuring (it may keep running `convex de
 
 ## 3. Copy env vars to the web app
 
-`apps/web/.env` already exists in this repo pointing at an existing Convex deployment. If you created your **own** Convex project in step 2, copy the new values over:
+Create the web app's local environment file from the tracked template. If you created your **own** Convex project in step 2, use its values below:
+
+```bash
+cp apps/web/.env.example apps/web/.env
+```
+
+On PowerShell:
+
+```powershell
+Copy-Item apps/web/.env.example apps/web/.env
+```
+
+Then read the backend configuration:
 
 ```bash
 cat packages/backend/.env.local
 ```
 
-Copy `CONVEX_URL` / site URL values into `apps/web/.env` as:
+Copy the `CONVEX_URL` and `CONVEX_SITE_URL` values into `apps/web/.env` as:
 
 ```
 VITE_CONVEX_URL=<your convex cloud url>

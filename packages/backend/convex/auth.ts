@@ -4,10 +4,10 @@ import { betterAuth } from "better-auth/minimal";
 
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
-import { query } from "./_generated/server";
+import { env, query } from "./_generated/server";
 import authConfig from "./auth.config";
 
-const siteUrl = process.env.SITE_URL!;
+const siteUrl = env.SITE_URL ?? "http://localhost:3001";
 
 export const authComponent = createClient<DataModel>(components.betterAuth);
 

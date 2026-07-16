@@ -1,7 +1,13 @@
 import betterAuth from "@convex-dev/better-auth/convex.config";
 import { defineApp } from "convex/server";
+import { v } from "convex/values";
 
-const app = defineApp();
+const app = defineApp({
+  env: {
+    DIRECTUS_WEBHOOK_SECRET: v.optional(v.string()),
+    SITE_URL: v.optional(v.string()),
+  },
+});
 app.use(betterAuth);
 
 export default app;

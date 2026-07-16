@@ -2,17 +2,12 @@ import { Button } from "@ERPTrisThom/ui/components/button";
 import { Input } from "@ERPTrisThom/ui/components/input";
 import { Label } from "@ERPTrisThom/ui/components/label";
 import { useForm } from "@tanstack/react-form";
-import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
 
 export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
-  const navigate = useNavigate({
-    from: "/",
-  });
-
   const form = useForm({
     defaultValues: {
       email: "",
@@ -25,11 +20,14 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           password: value.password,
         },
         {
-          onSuccess: () => {
-            navigate({
-              to: "/dashboard",
-            });
-            toast.success("Sign in successful");
+          onSuccess: async () => {
+            const session = await authClient.getSession();
+            if (!session.data?.session) {
+              toast.error("La session n’a pas pu être ouverte. Veuillez réessayer.");
+              return;
+            }
+
+            window.location.replace("/dashboard");
           },
           onError: (error) => {
             toast.error(error.error.message || error.error.statusText);
@@ -46,8 +44,10 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
   });
 
   return (
-    <div className="mx-auto w-full mt-10 max-w-md p-6">
-      <h1 className="mb-6 text-center text-3xl font-bold">Welcome Back</h1>
+    <div className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
+      <p className="text-xs font-bold tracking-[0.16em] text-[#8b1629] uppercase">Bouillon Comptoir</p>
+      <h1 className="mt-2 font-serif text-4xl font-bold">Connexion</h1>
+      <p className="mt-2 text-sm text-stone-500">Accédez à votre espace de gestion commerciale.</p>
 
       <form
         onSubmit={(e) => {
@@ -55,13 +55,13 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           e.stopPropagation();
           form.handleSubmit();
         }}
-        className="space-y-4"
+        className="mt-7 space-y-4"
       >
         <div>
           <form.Field name="email">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Email</Label>
+                <Label htmlFor={field.name}>Adresse e-mail</Label>
                 <Input
                   id={field.name}
                   name={field.name}
@@ -84,7 +84,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           <form.Field name="password">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Password</Label>
+                <Label htmlFor={field.name}>Mot de passe</Label>
                 <Input
                   id={field.name}
                   name={field.name}
@@ -108,7 +108,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
         >
           {({ canSubmit, isSubmitting }) => (
             <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
-              {isSubmitting ? "Submitting..." : "Sign In"}
+              {isSubmitting ? "Connexion…" : "Se connecter"}
             </Button>
           )}
         </form.Subscribe>
@@ -120,7 +120,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           onClick={onSwitchToSignUp}
           className="text-indigo-600 hover:text-indigo-800"
         >
-          Need an account? Sign Up
+          Première utilisation ? Créer le compte
         </Button>
       </div>
     </div>

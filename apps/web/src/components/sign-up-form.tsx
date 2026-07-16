@@ -2,17 +2,12 @@ import { Button } from "@ERPTrisThom/ui/components/button";
 import { Input } from "@ERPTrisThom/ui/components/input";
 import { Label } from "@ERPTrisThom/ui/components/label";
 import { useForm } from "@tanstack/react-form";
-import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
 
 export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
-  const navigate = useNavigate({
-    from: "/",
-  });
-
   const form = useForm({
     defaultValues: {
       email: "",
@@ -27,11 +22,14 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
           name: value.name,
         },
         {
-          onSuccess: () => {
-            navigate({
-              to: "/dashboard",
-            });
-            toast.success("Sign up successful");
+          onSuccess: async () => {
+            const session = await authClient.getSession();
+            if (!session.data?.session) {
+              toast.error("Le compte est créé, mais la session n’a pas pu être ouverte.");
+              return;
+            }
+
+            window.location.replace("/dashboard");
           },
           onError: (error) => {
             toast.error(error.error.message || error.error.statusText);
@@ -49,8 +47,10 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
   });
 
   return (
-    <div className="mx-auto w-full mt-10 max-w-md p-6">
-      <h1 className="mb-6 text-center text-3xl font-bold">Create Account</h1>
+    <div className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
+      <p className="text-xs font-bold tracking-[0.16em] text-[#8b1629] uppercase">Première utilisation</p>
+      <h1 className="mt-2 font-serif text-4xl font-bold">Créer le compte</h1>
+      <p className="mt-2 text-sm text-stone-500">Ce compte donnera accès à l’espace privé.</p>
 
       <form
         onSubmit={(e) => {
@@ -58,13 +58,13 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
           e.stopPropagation();
           form.handleSubmit();
         }}
-        className="space-y-4"
+        className="mt-7 space-y-4"
       >
         <div>
           <form.Field name="name">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Name</Label>
+                <Label htmlFor={field.name}>Nom</Label>
                 <Input
                   id={field.name}
                   name={field.name}
@@ -86,7 +86,7 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
           <form.Field name="email">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Email</Label>
+                <Label htmlFor={field.name}>Adresse e-mail</Label>
                 <Input
                   id={field.name}
                   name={field.name}
@@ -109,7 +109,7 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
           <form.Field name="password">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Password</Label>
+                <Label htmlFor={field.name}>Mot de passe</Label>
                 <Input
                   id={field.name}
                   name={field.name}
@@ -133,7 +133,7 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
         >
           {({ canSubmit, isSubmitting }) => (
             <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
-              {isSubmitting ? "Submitting..." : "Sign Up"}
+              {isSubmitting ? "Création…" : "Créer le compte"}
             </Button>
           )}
         </form.Subscribe>
@@ -145,7 +145,7 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
           onClick={onSwitchToSignIn}
           className="text-indigo-600 hover:text-indigo-800"
         >
-          Already have an account? Sign In
+          J’ai déjà un compte · Me connecter
         </Button>
       </div>
     </div>
