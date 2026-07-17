@@ -1,9 +1,10 @@
-import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
-import { FormEvent, useState } from "react";
+import { Link, Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
+import { CalendarDays, ChevronRight, CircleAlert, Columns3, FileText, Filter, LayoutList, Users } from "lucide-react";
+import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import { useLocalCrm } from "@/lib/local-crm";
+import { type LocalRequest, useLocalCrm } from "@/lib/local-crm";
 
 const sources = ["manuel", "telephone", "1001traiteur"] as const;
 const statuses = [
@@ -21,10 +22,12 @@ const statuses = [
 type Source = (typeof sources)[number];
 type Status = (typeof statuses)[number];
 
-const sourceLabels: Record<Source, string> = {
+const sourceLabels: Record<string, string> = {
   manuel: "Saisie manuelle",
   telephone: "Téléphone",
   "1001traiteur": "1001traiteur",
+  directus: "Site",
+  email: "E-mail",
 };
 
 const statusLabels: Record<Status, string> = {
@@ -38,6 +41,21 @@ const statusLabels: Record<Status, string> = {
   refuse: "Refusé",
   annule: "Annulé",
 };
+
+const statusStyles: Record<Status, string> = {
+  nouveau: "bg-sky-50 text-sky-800 ring-sky-100",
+  a_qualifier: "bg-amber-50 text-amber-900 ring-amber-100",
+  qualifie: "bg-violet-50 text-violet-800 ring-violet-100",
+  devis_a_preparer: "bg-orange-50 text-orange-900 ring-orange-100",
+  devis_envoye: "bg-blue-50 text-blue-800 ring-blue-100",
+  relance: "bg-rose-50 text-rose-800 ring-rose-100",
+  accepte: "bg-emerald-50 text-emerald-800 ring-emerald-100",
+  refuse: "bg-stone-100 text-stone-700 ring-stone-200",
+  annule: "bg-stone-100 text-stone-700 ring-stone-200",
+};
+const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
+const boardStatuses: Status[] = ["nouveau", "a_qualifier", "qualifie", "devis_a_preparer", "devis_envoye", "relance", "accepte"];
+type QuickFilter = "tous" | "a_traiter" | "devis_relances" | "archivees";
 
 export const Route = createFileRoute("/_auth/requests")({
   validateSearch: z.object({
@@ -54,6 +72,9 @@ function RequestsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "tous">("tous");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("tous");
+  const [view, setView] = useState<"list" | "board">("list");
+  const [draggedRequestId, setDraggedRequestId] = useState<string | null>(null);
   const location = useLocation();
 
   if (location.pathname !== "/requests") return <Outlet />;
@@ -109,13 +130,29 @@ function RequestsPage() {
     }
   }
 
-  const filteredRequests = requests?.filter((request) => {
+  async function moveRequest(requestId: string, status: Status) {
+    const request = requests.find((item) => item._id === requestId);
+    if (!request || request.status === status) return;
+    await handleStatusChange(request, status);
+  }
+
+  const filteredRequests = useMemo(() => requests?.filter((request) => {
     const matchesStatus = statusFilter === "tous" || request.status === statusFilter;
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || [request.contactName, request.contactEmail, request.eventType]
       .some((value) => value?.toLowerCase().includes(query));
-    return matchesStatus && matchesSearch;
-  });
+    const needsAction = request.missingInformation.length > 0 || request.status === "relance" || request.status === "devis_a_preparer";
+    const matchesQuickFilter = quickFilter === "tous" || (quickFilter === "a_traiter" && needsAction) || (quickFilter === "devis_relances" && ["devis_a_preparer", "devis_envoye", "relance"].includes(request.status)) || (quickFilter === "archivees" && ["refuse", "annule"].includes(request.status));
+    return matchesStatus && matchesSearch && matchesQuickFilter;
+  }).sort((a, b) => {
+    const aPriority = Number(a.status === "relance") * 2 + Number(a.missingInformation.length > 0);
+    const bPriority = Number(b.status === "relance") * 2 + Number(b.missingInformation.length > 0);
+    return bPriority - aPriority || b.updatedAt - a.updatedAt;
+  }), [quickFilter, requests, search, statusFilter]);
+  const actionCount = requests?.filter((request) => request.missingInformation.length > 0 || request.status === "relance" || request.status === "devis_a_preparer").length ?? 0;
+  const newCount = requests?.filter((request) => request.status === "nouveau").length ?? 0;
+  const qualifyingCount = requests?.filter((request) => request.status === "a_qualifier").length ?? 0;
+  const quoteAndFollowUpCount = requests?.filter((request) => ["devis_a_preparer", "devis_envoye", "relance"].includes(request.status)).length ?? 0;
 
   return (
     <div className="space-y-7">
@@ -136,16 +173,25 @@ function RequestsPage() {
 
       {isCreating ? <RequestForm isSaving={isSaving} onSubmit={handleSubmit} /> : null}
 
+      <section className="grid gap-3 sm:grid-cols-3">
+        <SummaryCard icon={CircleAlert} label="Nouvelles demandes" value={newCount} hint="À prendre en charge" onClick={() => { setQuickFilter("tous"); setStatusFilter("nouveau"); }} />
+        <SummaryCard icon={Users} label="À qualifier" value={qualifyingCount} hint="Informations à compléter" onClick={() => { setQuickFilter("tous"); setStatusFilter("a_qualifier"); }} emphasis />
+        <SummaryCard icon={FileText} label="Devis et relances" value={quoteAndFollowUpCount} hint="Dossiers commerciaux en cours" onClick={() => { setQuickFilter("devis_relances"); setStatusFilter("tous"); }} />
+      </section>
+
       <section className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-stone-100 px-6 py-4">
-          <h2 className="font-serif text-2xl font-bold">Tous les dossiers</h2>
+        <div className="border-b border-stone-100 px-5 py-5 sm:px-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+          <div><h2 className="font-serif text-2xl font-bold">Le suivi des dossiers</h2><p className="mt-1 text-sm text-stone-500">Commencez par les dossiers qui demandent une action.</p></div>
           <div className="flex flex-1 flex-wrap justify-end gap-2">
+            <div className="flex rounded-md border border-stone-200 bg-white p-1"><button type="button" onClick={() => setView("list")} aria-label="Vue liste" className={`rounded p-2 ${view === "list" ? "bg-[#f5ecee] text-[#8b1629]" : "text-stone-400"}`}><LayoutList className="size-4" /></button><button type="button" onClick={() => setView("board")} aria-label="Vue pipeline" className={`rounded p-2 ${view === "board" ? "bg-[#f5ecee] text-[#8b1629]" : "text-stone-400"}`}><Columns3 className="size-4" /></button></div>
             <input aria-label="Rechercher une demande" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un client…" className="input max-w-xs" />
-            <select aria-label="Filtrer par statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as Status | "tous")} className="input max-w-52">
+            <select aria-label="Filtrer par statut" value={statusFilter} onChange={(event) => { setQuickFilter("tous"); setStatusFilter(event.target.value as Status | "tous"); }} className="input max-w-52">
               <option value="tous">Tous les statuts</option>
               {statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
             </select>
-          </div>
+          </div></div>
+          <div className="mt-4 flex flex-wrap items-center gap-2"><Filter className="size-4 text-stone-400" /><QuickFilterButton active={quickFilter === "a_traiter"} onClick={() => { setQuickFilter(quickFilter === "a_traiter" ? "tous" : "a_traiter"); setStatusFilter("tous"); }}>À traiter ({actionCount})</QuickFilterButton>{(["nouveau", "a_qualifier", "devis_a_preparer", "devis_envoye", "relance", "accepte"] as Status[]).map((status) => <QuickFilterButton key={status} active={statusFilter === status && quickFilter === "tous"} onClick={() => { setQuickFilter("tous"); setStatusFilter(statusFilter === status ? "tous" : status); }}>{statusLabels[status]}</QuickFilterButton>)}<QuickFilterButton active={quickFilter === "archivees"} onClick={() => { setQuickFilter(quickFilter === "archivees" ? "tous" : "archivees"); setStatusFilter("tous"); }}>Archivées</QuickFilterButton></div>
         </div>
         {!requests ? (
           <p className="px-6 py-10 text-sm text-stone-500">Chargement des demandes…</p>
@@ -154,51 +200,35 @@ function RequestsPage() {
         ) : filteredRequests?.length === 0 ? (
           <p className="px-6 py-10 text-sm text-stone-500">Aucune demande ne correspond à votre recherche.</p>
         ) : (
-          <div className="divide-y divide-stone-100">
-            {filteredRequests?.map((request) => (
-              <article
-                key={request._id}
-                onClick={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })}
-                className="grid cursor-pointer gap-4 px-6 py-5 transition hover:bg-stone-50 md:grid-cols-[minmax(0,1fr)_11rem] md:items-center"
-              >
-                <div className="rounded-md outline-offset-4 focus:outline-[#8b1629]">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <h3 className="font-semibold">{request.contactName}</h3>
-                    <span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-xs font-bold text-[#8b1629]">
-                      {request.source}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-stone-600">
-                    {request.eventType ?? "Format à préciser"} · {request.guestCount ? `${request.guestCount} pers.` : "Invités à préciser"}
-                  </p>
-                  {request.missingInformation.length > 0 ? (
-                    <p className="mt-2 text-xs font-semibold text-amber-700">
-                      À compléter : {request.missingInformation.join(", ")}
-                    </p>
-                  ) : null}
-                </div>
-                <label className="grid gap-1 text-xs font-bold tracking-wide text-stone-500 uppercase">
-                  Statut
-                  <select
-                    value={request.status}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => handleStatusChange(request, event.target.value as Status)}
-                    className="rounded-md border border-stone-200 bg-white px-2 py-2 text-sm font-semibold normal-case text-stone-900"
-                  >
-                    {statuses.map((status) => (
-                      <option key={status} value={status}>
-                        {statusLabels[status]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </article>
-            ))}
+          view === "board" ? <PipelineBoard requests={filteredRequests} onMove={moveRequest} draggedRequestId={draggedRequestId} setDraggedRequestId={setDraggedRequestId} /> : <div className="divide-y divide-stone-100">
+            <div className="hidden grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] gap-5 px-6 py-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400 xl:grid"><span>Client</span><span>Événement</span><span>Qualification</span><span>Suivi</span><span>Action</span></div>
+            {filteredRequests?.map((request) => <RequestRow key={request._id} request={request} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} onStatusChange={handleStatusChange} />)}
           </div>
         )}
       </section>
     </div>
   );
+}
+
+function SummaryCard({ icon: Icon, label, value, hint, emphasis = false, onClick }: { icon: typeof CircleAlert; label: string; value: number; hint: string; emphasis?: boolean; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className={`rounded-xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${emphasis ? "border-[#e6c7cd] bg-[#fff8f8]" : "border-stone-200 bg-white"}`}><div className="flex items-center justify-between"><p className="text-sm font-semibold text-stone-600">{label}</p><Icon className={`size-5 ${emphasis ? "text-[#8b1629]" : "text-stone-400"}`} /></div><p className="mt-2 font-serif text-3xl font-bold">{value}</p><p className="mt-1 text-xs text-stone-500">{hint}</p></button>;
+}
+
+function QuickFilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return <button type="button" onClick={onClick} className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${active ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{children}</button>;
+}
+
+function RequestRow({ request, onOpen, onStatusChange }: { request: LocalRequest; onOpen: () => void; onStatusChange: (request: LocalRequest, status: Status) => Promise<void> }) {
+  const missingCount = request.missingInformation.length;
+  const followUp = request.followUps.find((item) => !item.completedAt);
+  const budget = request.budgetCents ? `Budget ${(request.budgetCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}` : request.budgetPerPersonCents ? `${(request.budgetPerPersonCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })} / pers.` : "Budget à préciser";
+  const nextAction = followUp?.title ?? (missingCount ? "Qualifier le dossier" : request.status === "nouveau" ? "Prendre contact" : request.status === "devis_a_preparer" ? "Préparer le devis" : request.status === "devis_envoye" ? "Attendre le retour client" : request.status === "relance" ? "Relancer le client" : request.status === "accepte" ? "Prestation confirmée" : "Suivre le dossier");
+  const shortAddress = request.eventAddress?.split(",")[0];
+  return <article onClick={onOpen} className="grid cursor-pointer gap-4 px-5 py-5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-2 xl:grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] xl:items-center xl:gap-5"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-semibold">{request.contactName}</h3><span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-[11px] font-bold text-[#8b1629]">{sourceLabels[request.source] ?? request.source}</span></div><p className="mt-1 truncate text-sm text-stone-500">{request.organizationName || "Particulier"}</p></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{request.eventType || "Format à préciser"}</p><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500"><span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5" />{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</span><span className="inline-flex items-center gap-1"><Users className="size-3.5" />{request.guestCount ? `${request.guestCount} pers.` : "Convives à préciser"}</span></div>{shortAddress ? <p className="mt-1 truncate text-xs text-stone-500">{shortAddress}</p> : null}</div><div><p className="text-sm font-semibold">{budget}</p><p className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${missingCount ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>{missingCount ? `${missingCount} information${missingCount > 1 ? "s" : ""} manquante${missingCount > 1 ? "s" : ""}` : "Dossier complet"}</p></div><div><span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${statusStyles[request.status]}`}>{statusLabels[request.status]}</span><p className="mt-2 text-sm font-semibold text-stone-700">{nextAction}</p>{followUp ? <time className="mt-1 block text-xs text-[#8b1629]">Échéance : {dateFormat.format(followUp.dueAt)}</time> : null}</div><div className="flex items-center justify-end gap-2"><label className="sr-only" htmlFor={`status-${request._id}`}>Modifier le statut</label><select id={`status-${request._id}`} value={request.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onStatusChange(request, event.target.value as Status)} className="rounded-md border border-stone-200 bg-white px-2 py-2 text-xs font-bold text-stone-700"><option disabled>Statut</option>{statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select><ChevronRight className="size-5 text-stone-300" /></div></article>;
+}
+
+function PipelineBoard({ requests, onMove, draggedRequestId, setDraggedRequestId }: { requests: LocalRequest[] | undefined; onMove: (requestId: string, status: Status) => Promise<void>; draggedRequestId: string | null; setDraggedRequestId: (value: string | null) => void }) {
+  return <div className="overflow-x-auto bg-stone-50 p-4"><div className="grid min-w-[110rem] grid-cols-7 gap-3">{boardStatuses.map((status) => { const columnRequests = requests?.filter((request) => request.status === status) ?? []; return <section key={status} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedRequestId) void onMove(draggedRequestId, status); setDraggedRequestId(null); }} className="min-h-[24rem] rounded-xl border border-stone-200 bg-white p-3"><header className="mb-3 flex items-center justify-between"><span className={`rounded-full px-2 py-1 text-xs font-bold ring-1 ${statusStyles[status]}`}>{statusLabels[status]}</span><span className="text-sm font-bold text-stone-400">{columnRequests.length}</span></header><div className="space-y-2">{columnRequests.length === 0 ? <p className="rounded-lg border border-dashed border-stone-200 p-3 text-xs text-stone-400">Déposez un dossier ici</p> : columnRequests.map((request) => <article key={request._id} draggable onDragStart={() => setDraggedRequestId(request._id)} onDragEnd={() => setDraggedRequestId(null)} className="cursor-grab rounded-lg border border-stone-200 bg-white p-3 shadow-sm transition hover:border-[#d9b8bf] hover:shadow active:cursor-grabbing"><Link to="/requests/$requestId" params={{ requestId: request._id }} className="block"><p className="truncate text-sm font-bold">{request.contactName}</p><p className="mt-1 truncate text-xs text-stone-500">{request.eventType ?? "Format à préciser"}</p>{request.eventDate ? <p className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#8b1629]"><CalendarDays className="size-3" />{dateFormat.format(request.eventDate)}</p> : null}</Link>{request.missingInformation.length > 0 ? <p className="mt-2 text-[11px] font-bold text-amber-700">{request.missingInformation.length} info{request.missingInformation.length > 1 ? "s" : ""} à compléter</p> : null}<select aria-label={`Déplacer ${request.contactName}`} value={request.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onMove(request._id, event.target.value as Status)} className="mt-3 w-full rounded border border-stone-200 bg-stone-50 px-2 py-1.5 text-xs font-semibold text-stone-600">{boardStatuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</select></article>)}</div></section>; })}</div></div>;
 }
 
 function RequestForm({

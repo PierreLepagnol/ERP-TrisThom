@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowRight, CalendarDays, CircleAlert, Euro, FileText, TrendingUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, CircleAlert, Euro, FileText, TrendingUp } from "lucide-react";
+import { useState } from "react";
 
 import { useLocalCrm } from "@/lib/local-crm";
 
@@ -28,7 +29,8 @@ export const Route = createFileRoute("/_auth/dashboard")({
 });
 
 function DashboardContent() {
-  const { dashboard } = useLocalCrm();
+  const { dashboard, completeFollowUp } = useLocalCrm();
+  const [monthOffset, setMonthOffset] = useState(0);
 
   return (
     <div className="space-y-7">
@@ -74,13 +76,11 @@ function DashboardContent() {
             ) : (
               dashboard.priorities.map((task) => (
                 <div key={task._id} className="flex items-center justify-between gap-4 py-4">
-                  <div>
-                    <p className="font-semibold">{task.title}</p>
+                  <Link to="/requests/$requestId" params={{ requestId: task.requestId }} className="min-w-0">
+                    <p className="font-semibold hover:text-[#8b1629]">{task.title}</p>
                     <p className="text-sm text-stone-500">Relance planifiée</p>
-                  </div>
-                  <time className="text-right text-sm font-bold text-[#8b1629]" dateTime={new Date(task.dueAt).toISOString()}>
-                    {date.format(task.dueAt)}
-                  </time>
+                  </Link>
+                  <div className="flex items-center gap-3"><time className="text-right text-sm font-bold text-[#8b1629]" dateTime={new Date(task.dueAt).toISOString()}>{date.format(task.dueAt)}</time><button onClick={() => completeFollowUp(task.requestId, task._id)} aria-label={`Terminer ${task.title}`} className="rounded-full bg-emerald-50 p-2 text-emerald-700"><Check className="size-4" /></button></div>
                 </div>
               ))
             )}
@@ -113,6 +113,8 @@ function DashboardContent() {
         </div>
       </section>
 
+      <MonthCalendar requests={dashboard.monthRequests} monthOffset={monthOffset} onPrevious={() => setMonthOffset((value) => value - 1)} onNext={() => setMonthOffset((value) => value + 1)} />
+
       <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="font-serif text-2xl font-bold">Pipeline actif</h2>
         <p className="text-sm text-stone-500">Répartition des dossiers en cours</p>
@@ -129,6 +131,14 @@ function DashboardContent() {
       </section>
     </div>
   );
+}
+
+function MonthCalendar({ requests, monthOffset, onPrevious, onNext }: { requests: ReturnType<typeof useLocalCrm>["dashboard"]["monthRequests"]; monthOffset: number; onPrevious: () => void; onNext: () => void }) {
+  const month = new Date(); month.setDate(1); month.setMonth(month.getMonth() + monthOffset); const year = month.getFullYear(), monthIndex = month.getMonth();
+  const firstDay = (month.getDay() + 6) % 7, daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const cells = Array.from({ length: Math.ceil((firstDay + daysInMonth) / 7) * 7 }, (_, index) => index - firstDay + 1);
+  const label = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(month);
+  return <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="font-serif text-2xl font-bold">Vision du mois</h2><p className="capitalize text-sm text-stone-500">{label}</p></div><div className="flex gap-2"><button onClick={onPrevious} aria-label="Mois précédent" className="rounded-md border border-stone-200 p-2"><ArrowLeft className="size-4" /></button><button onClick={onNext} aria-label="Mois suivant" className="rounded-md border border-stone-200 p-2"><ArrowRight className="size-4" /></button></div></div><div className="mt-5 grid grid-cols-7 text-center text-xs font-bold text-stone-400">{["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((day) => <div key={day} className="py-2">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-t border-stone-100">{cells.map((day, index) => { const dayRequests = day > 0 && day <= daysInMonth ? requests.filter((request) => { const event = request.eventDate ? new Date(request.eventDate) : null; return event?.getFullYear() === year && event.getMonth() === monthIndex && event.getDate() === day; }) : []; return <div key={index} className="min-h-24 border-b border-r border-stone-100 p-2 text-left">{day > 0 && day <= daysInMonth && <><p className="text-xs font-bold text-stone-500">{day}</p>{dayRequests.slice(0, 2).map((request) => <Link key={request._id} to="/requests/$requestId" params={{ requestId: request._id }} className="mt-1 block truncate rounded bg-[#f5ecee] px-1.5 py-1 text-[11px] font-semibold text-[#8b1629]" title={`${request.contactName} — ${request.eventType ?? "Prestation"}`}>{request.contactName}</Link>)}{dayRequests.length > 2 && <p className="mt-1 text-[10px] text-stone-500">+ {dayRequests.length - 2} dossier(s)</p>}</>}</div>; })}</div><p className="mt-3 text-xs text-stone-500">Chaque étiquette ouvre le dossier correspondant. Les dates affichées incluent les demandes et prestations non archivées.</p></section>;
 }
 
 function MetricCard({
