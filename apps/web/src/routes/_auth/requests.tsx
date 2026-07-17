@@ -4,23 +4,14 @@ import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { getAllowedRequestStatuses, pipelineRequestStatuses, requestStatusConfig, requestStatusValues, type RequestStatus } from "@/domain/request-status";
 import { type LocalRequest, useLocalCrm } from "@/lib/local-crm";
 
 const sources = ["manuel", "telephone", "1001traiteur"] as const;
-const statuses = [
-  "nouveau",
-  "a_qualifier",
-  "qualifie",
-  "devis_a_preparer",
-  "devis_envoye",
-  "relance",
-  "accepte",
-  "refuse",
-  "annule",
-] as const;
+const statuses = requestStatusValues;
 
 type Source = (typeof sources)[number];
-type Status = (typeof statuses)[number];
+type Status = RequestStatus;
 
 const sourceLabels: Record<string, string> = {
   manuel: "Saisie manuelle",
@@ -30,31 +21,7 @@ const sourceLabels: Record<string, string> = {
   email: "E-mail",
 };
 
-const statusLabels: Record<Status, string> = {
-  nouveau: "Nouveau",
-  a_qualifier: "À qualifier",
-  qualifie: "Qualifiée",
-  devis_a_preparer: "Devis à préparer",
-  devis_envoye: "Devis envoyé",
-  relance: "Relance",
-  accepte: "Accepté",
-  refuse: "Refusé",
-  annule: "Annulé",
-};
-
-const statusStyles: Record<Status, string> = {
-  nouveau: "bg-sky-50 text-sky-800 ring-sky-100",
-  a_qualifier: "bg-amber-50 text-amber-900 ring-amber-100",
-  qualifie: "bg-violet-50 text-violet-800 ring-violet-100",
-  devis_a_preparer: "bg-orange-50 text-orange-900 ring-orange-100",
-  devis_envoye: "bg-blue-50 text-blue-800 ring-blue-100",
-  relance: "bg-rose-50 text-rose-800 ring-rose-100",
-  accepte: "bg-emerald-50 text-emerald-800 ring-emerald-100",
-  refuse: "bg-stone-100 text-stone-700 ring-stone-200",
-  annule: "bg-stone-100 text-stone-700 ring-stone-200",
-};
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
-const boardStatuses: Status[] = ["nouveau", "a_qualifier", "qualifie", "devis_a_preparer", "devis_envoye", "relance", "accepte"];
 type QuickFilter = "tous" | "a_traiter" | "devis_relances" | "archivees";
 
 export const Route = createFileRoute("/_auth/requests")({
@@ -67,7 +34,7 @@ export const Route = createFileRoute("/_auth/requests")({
 function RequestsPage() {
   const searchParams = Route.useSearch();
   const navigate = useNavigate();
-  const { requests, createRequest, updateStatus } = useLocalCrm();
+  const { requests, archivedRequests, createRequest, updateStatus } = useLocalCrm();
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
@@ -132,23 +99,24 @@ function RequestsPage() {
 
   async function moveRequest(requestId: string, status: Status) {
     const request = requests.find((item) => item._id === requestId);
-    if (!request || request.status === status) return;
+    if (!request || request.status === status || !getAllowedRequestStatuses(request.status).includes(status)) return;
     await handleStatusChange(request, status);
   }
 
-  const filteredRequests = useMemo(() => requests?.filter((request) => {
+  const displayedRequests = quickFilter === "archivees" ? archivedRequests : requests;
+  const filteredRequests = useMemo(() => displayedRequests.filter((request) => {
     const matchesStatus = statusFilter === "tous" || request.status === statusFilter;
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || [request.contactName, request.contactEmail, request.eventType]
       .some((value) => value?.toLowerCase().includes(query));
     const needsAction = request.missingInformation.length > 0 || request.status === "relance" || request.status === "devis_a_preparer";
-    const matchesQuickFilter = quickFilter === "tous" || (quickFilter === "a_traiter" && needsAction) || (quickFilter === "devis_relances" && ["devis_a_preparer", "devis_envoye", "relance"].includes(request.status)) || (quickFilter === "archivees" && ["refuse", "annule"].includes(request.status));
+    const matchesQuickFilter = quickFilter === "tous" || quickFilter === "archivees" || (quickFilter === "a_traiter" && needsAction) || (quickFilter === "devis_relances" && ["devis_a_preparer", "devis_envoye", "relance"].includes(request.status));
     return matchesStatus && matchesSearch && matchesQuickFilter;
   }).sort((a, b) => {
     const aPriority = Number(a.status === "relance") * 2 + Number(a.missingInformation.length > 0);
     const bPriority = Number(b.status === "relance") * 2 + Number(b.missingInformation.length > 0);
     return bPriority - aPriority || b.updatedAt - a.updatedAt;
-  }), [quickFilter, requests, search, statusFilter]);
+  }), [displayedRequests, quickFilter, search, statusFilter]);
   const actionCount = requests?.filter((request) => request.missingInformation.length > 0 || request.status === "relance" || request.status === "devis_a_preparer").length ?? 0;
   const newCount = requests?.filter((request) => request.status === "nouveau").length ?? 0;
   const qualifyingCount = requests?.filter((request) => request.status === "a_qualifier").length ?? 0;
@@ -188,19 +156,19 @@ function RequestsPage() {
             <input aria-label="Rechercher une demande" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un client…" className="input max-w-xs" />
             <select aria-label="Filtrer par statut" value={statusFilter} onChange={(event) => { setQuickFilter("tous"); setStatusFilter(event.target.value as Status | "tous"); }} className="input max-w-52">
               <option value="tous">Tous les statuts</option>
-              {statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
+              {statuses.map((status) => <option key={status} value={status}>{requestStatusConfig[status].label}</option>)}
             </select>
           </div></div>
-          <div className="mt-4 flex flex-wrap items-center gap-2"><Filter className="size-4 text-stone-400" /><QuickFilterButton active={quickFilter === "a_traiter"} onClick={() => { setQuickFilter(quickFilter === "a_traiter" ? "tous" : "a_traiter"); setStatusFilter("tous"); }}>À traiter ({actionCount})</QuickFilterButton>{(["nouveau", "a_qualifier", "devis_a_preparer", "devis_envoye", "relance", "accepte"] as Status[]).map((status) => <QuickFilterButton key={status} active={statusFilter === status && quickFilter === "tous"} onClick={() => { setQuickFilter("tous"); setStatusFilter(statusFilter === status ? "tous" : status); }}>{statusLabels[status]}</QuickFilterButton>)}<QuickFilterButton active={quickFilter === "archivees"} onClick={() => { setQuickFilter(quickFilter === "archivees" ? "tous" : "archivees"); setStatusFilter("tous"); }}>Archivées</QuickFilterButton></div>
+          <div className="mt-4 flex flex-wrap items-center gap-2"><Filter className="size-4 text-stone-400" /><QuickFilterButton active={quickFilter === "a_traiter"} onClick={() => { setQuickFilter(quickFilter === "a_traiter" ? "tous" : "a_traiter"); setStatusFilter("tous"); }}>À traiter ({actionCount})</QuickFilterButton>{pipelineRequestStatuses.map((status) => <QuickFilterButton key={status} active={statusFilter === status && quickFilter === "tous"} onClick={() => { setQuickFilter("tous"); setStatusFilter(statusFilter === status ? "tous" : status); }}>{requestStatusConfig[status].label}</QuickFilterButton>)}<QuickFilterButton active={quickFilter === "archivees"} onClick={() => { setQuickFilter(quickFilter === "archivees" ? "tous" : "archivees"); setStatusFilter("tous"); }}>Archivées ({archivedRequests.length})</QuickFilterButton></div>
         </div>
-        {!requests ? (
+        {!displayedRequests ? (
           <p className="px-6 py-10 text-sm text-stone-500">Chargement des demandes…</p>
-        ) : requests.length === 0 ? (
+        ) : displayedRequests.length === 0 ? (
           <p className="px-6 py-10 text-sm text-stone-500">Aucune demande pour le moment. Créez la première pour démarrer le suivi.</p>
-        ) : filteredRequests?.length === 0 ? (
+        ) : filteredRequests.length === 0 ? (
           <p className="px-6 py-10 text-sm text-stone-500">Aucune demande ne correspond à votre recherche.</p>
         ) : (
-          view === "board" ? <PipelineBoard requests={filteredRequests} onMove={moveRequest} draggedRequestId={draggedRequestId} setDraggedRequestId={setDraggedRequestId} /> : <div className="divide-y divide-stone-100">
+          view === "board" && quickFilter !== "archivees" ? <PipelineBoard requests={filteredRequests} onMove={moveRequest} draggedRequestId={draggedRequestId} setDraggedRequestId={setDraggedRequestId} /> : <div className="divide-y divide-stone-100">
             <div className="hidden grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] gap-5 px-6 py-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400 xl:grid"><span>Client</span><span>Événement</span><span>Qualification</span><span>Suivi</span><span>Action</span></div>
             {filteredRequests?.map((request) => <RequestRow key={request._id} request={request} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} onStatusChange={handleStatusChange} />)}
           </div>
@@ -224,11 +192,11 @@ function RequestRow({ request, onOpen, onStatusChange }: { request: LocalRequest
   const budget = request.budgetCents ? `Budget ${(request.budgetCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}` : request.budgetPerPersonCents ? `${(request.budgetPerPersonCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })} / pers.` : "Budget à préciser";
   const nextAction = followUp?.title ?? (missingCount ? "Qualifier le dossier" : request.status === "nouveau" ? "Prendre contact" : request.status === "devis_a_preparer" ? "Préparer le devis" : request.status === "devis_envoye" ? "Attendre le retour client" : request.status === "relance" ? "Relancer le client" : request.status === "accepte" ? "Prestation confirmée" : "Suivre le dossier");
   const shortAddress = request.eventAddress?.split(",")[0];
-  return <article onClick={onOpen} className="grid cursor-pointer gap-4 px-5 py-5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-2 xl:grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] xl:items-center xl:gap-5"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-semibold">{request.contactName}</h3><span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-[11px] font-bold text-[#8b1629]">{sourceLabels[request.source] ?? request.source}</span></div><p className="mt-1 truncate text-sm text-stone-500">{request.organizationName || "Particulier"}</p></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{request.eventType || "Format à préciser"}</p><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500"><span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5" />{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</span><span className="inline-flex items-center gap-1"><Users className="size-3.5" />{request.guestCount ? `${request.guestCount} pers.` : "Convives à préciser"}</span></div>{shortAddress ? <p className="mt-1 truncate text-xs text-stone-500">{shortAddress}</p> : null}</div><div><p className="text-sm font-semibold">{budget}</p><p className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${missingCount ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>{missingCount ? `${missingCount} information${missingCount > 1 ? "s" : ""} manquante${missingCount > 1 ? "s" : ""}` : "Dossier complet"}</p></div><div><span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${statusStyles[request.status]}`}>{statusLabels[request.status]}</span><p className="mt-2 text-sm font-semibold text-stone-700">{nextAction}</p>{followUp ? <time className="mt-1 block text-xs text-[#8b1629]">Échéance : {dateFormat.format(followUp.dueAt)}</time> : null}</div><div className="flex items-center justify-end gap-2"><label className="sr-only" htmlFor={`status-${request._id}`}>Modifier le statut</label><select id={`status-${request._id}`} value={request.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onStatusChange(request, event.target.value as Status)} className="rounded-md border border-stone-200 bg-white px-2 py-2 text-xs font-bold text-stone-700"><option disabled>Statut</option>{statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select><ChevronRight className="size-5 text-stone-300" /></div></article>;
+  return <article onClick={onOpen} className="grid cursor-pointer gap-4 px-5 py-5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-2 xl:grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] xl:items-center xl:gap-5"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-semibold">{request.contactName}</h3><span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-[11px] font-bold text-[#8b1629]">{sourceLabels[request.source] ?? request.source}</span></div><p className="mt-1 truncate text-sm text-stone-500">{request.organizationName || "Particulier"}</p></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{request.eventType || "Format à préciser"}</p><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500"><span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5" />{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</span><span className="inline-flex items-center gap-1"><Users className="size-3.5" />{request.guestCount ? `${request.guestCount} pers.` : "Convives à préciser"}</span></div>{shortAddress ? <p className="mt-1 truncate text-xs text-stone-500">{shortAddress}</p> : null}</div><div><p className="text-sm font-semibold">{budget}</p><p className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${missingCount ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>{missingCount ? `${missingCount} information${missingCount > 1 ? "s" : ""} manquante${missingCount > 1 ? "s" : ""}` : "Dossier complet"}</p></div><div><span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${requestStatusConfig[request.status].badgeClassName}`}>{requestStatusConfig[request.status].label}</span><p className="mt-2 text-sm font-semibold text-stone-700">{nextAction}</p>{followUp ? <time className="mt-1 block text-xs text-[#8b1629]">Échéance : {dateFormat.format(followUp.dueAt)}</time> : null}</div><div className="flex items-center justify-end gap-2"><label className="sr-only" htmlFor={`status-${request._id}`}>Modifier le statut</label><select id={`status-${request._id}`} value={request.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onStatusChange(request, event.target.value as Status)} className="rounded-md border border-stone-200 bg-white px-2 py-2 text-xs font-bold text-stone-700"><option disabled>Statut</option>{getAllowedRequestStatuses(request.status).map((status) => <option key={status} value={status}>{requestStatusConfig[status].label}</option>)}</select><ChevronRight className="size-5 text-stone-300" /></div></article>;
 }
 
 function PipelineBoard({ requests, onMove, draggedRequestId, setDraggedRequestId }: { requests: LocalRequest[] | undefined; onMove: (requestId: string, status: Status) => Promise<void>; draggedRequestId: string | null; setDraggedRequestId: (value: string | null) => void }) {
-  return <div className="overflow-x-auto bg-stone-50 p-4"><div className="grid min-w-[110rem] grid-cols-7 gap-3">{boardStatuses.map((status) => { const columnRequests = requests?.filter((request) => request.status === status) ?? []; return <section key={status} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedRequestId) void onMove(draggedRequestId, status); setDraggedRequestId(null); }} className="min-h-[24rem] rounded-xl border border-stone-200 bg-white p-3"><header className="mb-3 flex items-center justify-between"><span className={`rounded-full px-2 py-1 text-xs font-bold ring-1 ${statusStyles[status]}`}>{statusLabels[status]}</span><span className="text-sm font-bold text-stone-400">{columnRequests.length}</span></header><div className="space-y-2">{columnRequests.length === 0 ? <p className="rounded-lg border border-dashed border-stone-200 p-3 text-xs text-stone-400">Déposez un dossier ici</p> : columnRequests.map((request) => <article key={request._id} draggable onDragStart={() => setDraggedRequestId(request._id)} onDragEnd={() => setDraggedRequestId(null)} className="cursor-grab rounded-lg border border-stone-200 bg-white p-3 shadow-sm transition hover:border-[#d9b8bf] hover:shadow active:cursor-grabbing"><Link to="/requests/$requestId" params={{ requestId: request._id }} className="block"><p className="truncate text-sm font-bold">{request.contactName}</p><p className="mt-1 truncate text-xs text-stone-500">{request.eventType ?? "Format à préciser"}</p>{request.eventDate ? <p className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#8b1629]"><CalendarDays className="size-3" />{dateFormat.format(request.eventDate)}</p> : null}</Link>{request.missingInformation.length > 0 ? <p className="mt-2 text-[11px] font-bold text-amber-700">{request.missingInformation.length} info{request.missingInformation.length > 1 ? "s" : ""} à compléter</p> : null}<select aria-label={`Déplacer ${request.contactName}`} value={request.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onMove(request._id, event.target.value as Status)} className="mt-3 w-full rounded border border-stone-200 bg-stone-50 px-2 py-1.5 text-xs font-semibold text-stone-600">{boardStatuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</select></article>)}</div></section>; })}</div></div>;
+  return <div className="overflow-x-auto bg-stone-50 p-4"><div className="grid min-w-[110rem] grid-cols-7 gap-3">{pipelineRequestStatuses.map((status) => { const columnRequests = requests?.filter((request) => request.status === status) ?? []; return <section key={status} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedRequestId) void onMove(draggedRequestId, status); setDraggedRequestId(null); }} className="min-h-[24rem] rounded-xl border border-stone-200 bg-white p-3"><header className="mb-3 flex items-center justify-between"><span className={`rounded-full px-2 py-1 text-xs font-bold ring-1 ${requestStatusConfig[status].badgeClassName}`}>{requestStatusConfig[status].label}</span><span className="text-sm font-bold text-stone-400">{columnRequests.length}</span></header><div className="space-y-2">{columnRequests.length === 0 ? <p className="rounded-lg border border-dashed border-stone-200 p-3 text-xs text-stone-400">Déposez un dossier ici</p> : columnRequests.map((request) => <article key={request._id} draggable onDragStart={() => setDraggedRequestId(request._id)} onDragEnd={() => setDraggedRequestId(null)} className="cursor-grab rounded-lg border border-stone-200 bg-white p-3 shadow-sm transition hover:border-[#d9b8bf] hover:shadow active:cursor-grabbing"><Link to="/requests/$requestId" params={{ requestId: request._id }} className="block"><p className="truncate text-sm font-bold">{request.contactName}</p><p className="mt-1 truncate text-xs text-stone-500">{request.eventType ?? "Format à préciser"}</p>{request.eventDate ? <p className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#8b1629]"><CalendarDays className="size-3" />{dateFormat.format(request.eventDate)}</p> : null}</Link>{request.missingInformation.length > 0 ? <p className="mt-2 text-[11px] font-bold text-amber-700">{request.missingInformation.length} info{request.missingInformation.length > 1 ? "s" : ""} à compléter</p> : null}<select aria-label={`Déplacer ${request.contactName}`} value={request.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onMove(request._id, event.target.value as Status)} className="mt-3 w-full rounded border border-stone-200 bg-stone-50 px-2 py-1.5 text-xs font-semibold text-stone-600">{getAllowedRequestStatuses(request.status).map((value) => <option key={value} value={value}>{requestStatusConfig[value].label}</option>)}</select></article>)}</div></section>; })}</div></div>;
 }
 
 function RequestForm({

@@ -2,6 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { CalendarDays, ChevronLeft, ChevronRight, MapPin, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { requestStatusConfig } from "@/domain/request-status";
 import { type LocalRequest, useLocalCrm } from "@/lib/local-crm";
 
 export const Route = createFileRoute("/_auth/calendar")({ component: CalendarPage });
@@ -42,7 +43,7 @@ function CalendarPage() {
 function CalendarDay({ date, currentMonth, requests }: { date: Date; currentMonth: number; requests: LocalRequest[] }) {
   const inMonth = date.getMonth() === currentMonth;
   const today = isSameDay(date.getTime(), new Date());
-  return <div className={`min-h-28 border-b border-r border-stone-100 p-1.5 sm:min-h-32 sm:p-2 ${inMonth ? "bg-white" : "bg-stone-50/70"}`}><p className={`mb-1 grid size-6 place-items-center rounded-full text-xs font-bold ${today ? "bg-[#650d1c] text-white" : inMonth ? "text-stone-700" : "text-stone-300"}`}>{date.getDate()}</p><div className="space-y-1">{requests.slice(0, 2).map((request) => <Link key={request._id} to="/requests/$requestId" params={{ requestId: request._id }} title={`${request.contactName} — ${request.eventType ?? "Prestation à préciser"}`} className={`block truncate rounded px-1.5 py-1 text-[10px] font-bold leading-tight sm:text-xs ${request.status === "accepte" ? "bg-emerald-100 text-emerald-900" : "bg-[#f5ecee] text-[#741424] hover:bg-[#edd9dd]"}`}>{request.contactName}</Link>)}{requests.length > 2 ? <p className="px-1 text-[10px] font-bold text-stone-500">+ {requests.length - 2} autres</p> : null}</div></div>;
+  return <div className={`min-h-28 border-b border-r border-stone-100 p-1.5 sm:min-h-32 sm:p-2 ${inMonth ? "bg-white" : "bg-stone-50/70"}`}><p className={`mb-1 grid size-6 place-items-center rounded-full text-xs font-bold ${today ? "bg-[#650d1c] text-white" : inMonth ? "text-stone-700" : "text-stone-300"}`}>{date.getDate()}</p><div className="space-y-1">{requests.slice(0, 2).map((request) => <Link key={request._id} to="/requests/$requestId" params={{ requestId: request._id }} title={`${request.contactName} — ${request.eventType ?? "Prestation à préciser"}`} className={`block truncate rounded px-1.5 py-1 text-[10px] font-bold leading-tight sm:text-xs ${requestStatusConfig[request.status].calendarClassName}`}>{request.contactName}</Link>)}{requests.length > 2 ? <p className="px-1 text-[10px] font-bold text-stone-500">+ {requests.length - 2} autres</p> : null}</div></div>;
 }
 
 function EventCard({ request }: { request: LocalRequest }) {

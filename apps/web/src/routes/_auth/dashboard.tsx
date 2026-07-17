@@ -2,15 +2,8 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, CalendarDays, Check, CircleAlert, Euro, FileText, TrendingUp } from "lucide-react";
 import { useState } from "react";
 
+import { requestStatusConfig } from "@/domain/request-status";
 import { useLocalCrm } from "@/lib/local-crm";
-
-const statusLabels: Record<string, string> = {
-  nouveau: "Nouvelles",
-  a_qualifier: "À qualifier",
-  devis_a_preparer: "À chiffrer",
-  devis_envoye: "Envoyées",
-  relance: "Relances",
-};
 
 const euro = new Intl.NumberFormat("fr-FR", {
   style: "currency",
@@ -123,7 +116,7 @@ function DashboardContent() {
             <div key={item.status} className="border-t-4 border-[#d9c7cb] pt-3">
               <p className="text-3xl font-bold">{item.count}</p>
               <p className="mt-1 text-xs font-bold tracking-wide text-stone-500 uppercase">
-                {statusLabels[item.status]}
+                {requestStatusConfig[item.status].label}
               </p>
             </div>
           ))}
