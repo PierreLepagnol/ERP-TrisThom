@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 
 import { QuoteDocument } from "@/components/quotes/quote-document";
+import { selectQuoteVersion } from "@/domain/quote-draft";
 import { LocalCrmProvider, useLocalCrm } from "@/lib/local-crm";
 
 export const Route = createFileRoute("/print/requests/$requestId/quote")({
+  validateSearch: z.object({ version: z.string().optional() }),
   component: PrintQuoteRoute,
 });
 
@@ -17,13 +20,13 @@ function PrintQuoteRoute() {
 
 function PrintQuoteDocument() {
   const { requestId } = Route.useParams();
+  const { version: versionId } = Route.useSearch();
   const { requests, archivedRequests, quotes } = useLocalCrm();
   const request = [...requests, ...archivedRequests].find(
     (item) => item._id === requestId,
   );
   const quote = quotes.find((item) => item.requestId === requestId);
-  const version =
-    quote && quote.versions.find((item) => item.id === quote.currentVersionId);
+  const version = quote && selectQuoteVersion(quote.versions, quote.currentVersionId, versionId);
   if (!request || !quote || !version)
     return (
       <main className="p-8 text-sm text-stone-600">Chargement du devis…</main>

@@ -15,6 +15,9 @@ import {
 } from "@/domain/request-status";
 import { foodCostCentsByCatalogItemId } from "@/domain/catalog-food-costs";
 import { calculateQuoteTotals } from "@/domain/quote-calculation";
+import { canSaveOverQuoteVersion } from "@/domain/quote-draft";
+import { canDeleteQuoteVersion, deleteQuoteVersionFromQuote } from "@/domain/quote-deletion";
+import type { QuoteCompositionItem, QuoteLineOrigin } from "@/domain/quote-line";
 
 export type { RequestStatus } from "@/domain/request-status";
 export type RequestSource =
@@ -42,6 +45,16 @@ export type LocalQuoteLine = {
   unitPriceCents: number;
   vatRate: number;
   details?: string[];
+  origin?: QuoteLineOrigin;
+  catalogItemId?: string;
+  unit?: string;
+  category?: string;
+  snapshotName?: string;
+  snapshotDescription?: string;
+  compositionItems?: QuoteCompositionItem[];
+  estimatedFoodCostCents?: number;
+  estimatedProductionMinutes?: number;
+  productionBaseIds?: string[];
 };
 export type QuoteTemplate =
   | "libre"
@@ -242,6 +255,7 @@ type LocalCrm = {
     requestId: string,
     versionId: string,
   ) => Promise<LocalQuote>;
+  deleteQuoteVersion: (requestId: string, versionId: string) => Promise<void>;
   saveCatalogItem: (item: CatalogItem) => Promise<void>;
   deleteCatalogItem: (itemId: string) => Promise<void>;
   completeFollowUp: (requestId: string, followUpId: string) => Promise<void>;
@@ -1433,6 +1447,11 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now();
       const existing = quotes.find((item) => item.requestId === requestId);
       const current = existing && currentQuoteVersion(existing);
+      if (!canSaveOverQuoteVersion(current?.status, quote.status)) {
+        throw new Error(
+          "Cette version est figée. Créez une nouvelle version pour la modifier.",
+        );
+      }
       const version = quoteVersionFromLegacy(
         quote,
         current?.versionNumber ?? quote.version ?? 1,
@@ -1602,6 +1621,54 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     },
     [createQuoteVersion, quotes],
   );
+  const deleteQuoteVersion = useCallback(
+    async (requestId: string, versionId: string) => {
+      const quote = quotes.find((item) => item.requestId === requestId);
+      const request = requests.find((item) => item._id === requestId);
+      const version = quote?.versions.find((item) => item.id === versionId);
+      if (!quote || !request || !version) throw new Error("Version de devis introuvable.");
+      if (!canDeleteQuoteVersion(version)) {
+        throw new Error("Cette version a une valeur historique et ne peut pas être supprimée.");
+      }
+      const now = Date.now();
+      const nextQuote = deleteQuoteVersionFromQuote(quote, versionId);
+      setQuotes((current) => nextQuote
+        ? current.map((item) => item.id === quote.id ? { ...nextQuote, updatedAt: now } : item)
+        : current.filter((item) => item.id !== quote.id),
+      );
+      setRequests((current) => current.map((item) => {
+        if (item._id !== requestId) return item;
+        if (!nextQuote) {
+          const { quote: _quote, quoteAmountCents: _quoteAmountCents, ...withoutQuote } = item;
+          const status = missingInformation(item).length ? "a_qualifier" : "devis_a_preparer";
+          return {
+            ...withoutQuote,
+            status,
+            history: [...item.history, { id: id("quote-deleted"), label: `Devis brouillon ${quote.quoteNumber} supprimé`, createdAt: now }],
+            updatedAt: now,
+          };
+        }
+        const currentVersion = currentQuoteVersion(nextQuote)!;
+        const nextStatus = currentVersion.status === "envoye"
+          ? "devis_envoye"
+          : currentVersion.status === "accepte"
+            ? "accepte"
+            : currentVersion.status === "refuse"
+              ? "refuse"
+              : item.status;
+        return {
+          ...item,
+          status: nextStatus,
+          acceptedAt: currentVersion.status === "accepte" ? nextQuote.acceptedAt : undefined,
+          quote: legacyQuoteFromVersion(currentVersion, nextQuote.versions, nextQuote.quoteNumber),
+          quoteAmountCents: nextQuote.totalTtcCents,
+          history: [...item.history, { id: id("quote-version-deleted"), label: `Version brouillon ${version.versionNumber} du devis ${quote.quoteNumber} supprimée`, createdAt: now }],
+          updatedAt: now,
+        };
+      }));
+    },
+    [quotes, requests],
+  );
   const saveCatalogItem = useCallback(async (item: CatalogItem) => {
     setCatalog((current) => {
       const exists = current.some((entry) => entry.id === item.id);
@@ -1747,6 +1814,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       saveQuote,
       createQuoteVersion,
       restoreQuoteVersion,
+      deleteQuoteVersion,
       saveCatalogItem,
       deleteCatalogItem,
       completeFollowUp,
@@ -1818,6 +1886,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     resetDemoData,
     restoreRequest,
     restoreQuoteVersion,
+    deleteQuoteVersion,
     saveCatalogItem,
     saveQuote,
     scheduleFollowUp,

@@ -1,4 +1,5 @@
 import { bouillonComptoirBrand as brand } from "@/config/brand";
+import { calculateQuoteTotals, type QuoteCalculation } from "@/domain/quote-calculation";
 import type { LocalRequest, Quote, QuoteVersion } from "@/lib/local-crm";
 
 const money = new Intl.NumberFormat("fr-FR", {
@@ -20,16 +21,7 @@ export function QuoteDocument({
   version: QuoteVersion;
   request: LocalRequest;
 }) {
-  const vatBreakdown = version.lines.reduce<Record<string, number>>(
-    (result, line) => {
-      const key = String(line.vatRate);
-      result[key] =
-        (result[key] ?? 0) +
-        line.quantity * line.unitPriceCents * (line.vatRate / 100);
-      return result;
-    },
-    {},
-  );
+  const calculation = calculateQuoteTotals(version.lines, version.discountCents);
   const offerTitle = version.lines[0]?.label ?? "Proposition Bouillon Comptoir";
   const eventTitle = request.eventType || "Votre événement";
   const clientLines = [
@@ -125,7 +117,7 @@ export function QuoteDocument({
             <p className="whitespace-pre-line">{version.introduction}</p>
           </section>
         ) : null}
-        <FinancialSummary version={version} vatBreakdown={vatBreakdown} />
+        <FinancialSummary version={version} calculation={calculation} />
         <DocumentFooter page={1} />
       </div>
       <div className="quote-document-page mt-6 bg-white p-8 sm:p-12 print:mt-0 print:min-h-[297mm] print:break-before-page print:p-[12mm]">
@@ -175,7 +167,7 @@ export function QuoteDocument({
               </tr>
             </thead>
             <tbody>
-              {version.lines.map((line) => (
+              {version.lines.map((line, index) => (
                 <tr
                   key={line.id}
                   className="border-b border-[#d8cdbb] [break-inside:avoid]"
@@ -189,7 +181,7 @@ export function QuoteDocument({
                     {line.vatRate} %
                   </td>
                   <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
-                    {money.format((line.quantity * line.unitPriceCents) / 100)}
+                    {money.format((calculation.lineTotals[index]?.totalHtCents ?? 0) / 100)}
                   </td>
                 </tr>
               ))}
@@ -199,31 +191,31 @@ export function QuoteDocument({
         <section className="hidden">
           <Total
             label="Total HT"
-            value={money.format(version.totalHtCents / 100)}
+            value={money.format(calculation.totalHtCents / 100)}
           />
           {version.discountCents ? (
             <Total
               label="Remise"
-              value={`− ${money.format(version.discountCents / 100)}`}
+              value={`− ${money.format(calculation.appliedDiscountCents / 100)}`}
             />
           ) : null}
-          {Object.entries(vatBreakdown).map(([rate, amount]) => (
+          {calculation.vatBreakdown.map((group) => (
             <Total
-              key={rate}
-              label={`TVA ${rate} %`}
-              value={money.format(amount / 100)}
+              key={group.vatRate}
+              label={`TVA ${group.vatRate} %`}
+              value={money.format(group.vatCents / 100)}
             />
           ))}
           <Total
             label="Montant total de TVA"
-            value={money.format(version.totalVatCents / 100)}
+            value={money.format(calculation.totalVatCents / 100)}
           />
           <div
             className="mt-3 flex items-baseline justify-between bg-[#5a1420] px-4 py-3 font-serif text-xl font-bold text-white"
             style={{ fontFamily: "Fraunces, Georgia, serif" }}
           >
             <span>Total TTC</span>
-            <span>{money.format(version.totalTtcCents / 100)}</span>
+            <span>{money.format(calculation.totalTtcCents / 100)}</span>
           </div>
         </section>
         {[
@@ -289,8 +281,8 @@ function Total({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-function FinancialSummary({ version, vatBreakdown }: { version: QuoteVersion; vatBreakdown: Record<string, number> }) {
-  return <section className="mt-6 border-t border-[#d8cdbb] pt-4"><h2 className="font-serif text-xl font-bold text-[#5a1420]">Récapitulatif chiffré</h2><table className="mt-2 w-full border-collapse text-left text-xs"><thead><tr className="bg-[#650d1c] text-white"><th className="px-3 py-2">Description</th><th className="px-2 py-2 text-right">Qté</th><th className="px-2 py-2 text-right">PU HT</th><th className="px-2 py-2 text-right">TVA</th><th className="px-3 py-2 text-right">Total HT</th></tr></thead><tbody>{version.lines.map((line) => <tr key={line.id} className="border-b border-[#e7dfd2]"><td className="px-3 py-2"><strong>{line.label}</strong></td><td className="px-2 py-2 text-right">{line.quantity}</td><td className="px-2 py-2 text-right whitespace-nowrap">{money.format(line.unitPriceCents / 100)}</td><td className="px-2 py-2 text-right">{line.vatRate} %</td><td className="px-3 py-2 text-right font-bold whitespace-nowrap">{money.format(line.quantity * line.unitPriceCents / 100)}</td></tr>)}</tbody></table><div className="mt-4 ml-auto w-full max-w-60 border border-[#e7dfd2] text-xs"><Total label="Total HT" value={money.format(version.totalHtCents / 100)} />{version.discountCents ? <Total label="Remise" value={`− ${money.format(version.discountCents / 100)}`} /> : null}{Object.entries(vatBreakdown).map(([rate, amount]) => <Total key={rate} label={`TVA ${rate} %`} value={money.format(amount / 100)} />)}<Total label="Total TVA" value={money.format(version.totalVatCents / 100)} /><div className="flex justify-between bg-[#650d1c] px-3 py-2 font-bold text-white"><span>TOTAL TTC</span><span>{money.format(version.totalTtcCents / 100)}</span></div></div></section>;
+function FinancialSummary({ version, calculation }: { version: QuoteVersion; calculation: QuoteCalculation }) {
+  return <section className="mt-6 border-t border-[#d8cdbb] pt-4"><h2 className="font-serif text-xl font-bold text-[#5a1420]">Récapitulatif chiffré</h2><table className="mt-2 w-full border-collapse text-left text-xs"><thead><tr className="bg-[#650d1c] text-white"><th className="px-3 py-2">Description</th><th className="px-2 py-2 text-right">Qté</th><th className="px-2 py-2 text-right">PU HT</th><th className="px-2 py-2 text-right">TVA</th><th className="px-3 py-2 text-right">Total HT</th></tr></thead><tbody>{version.lines.map((line, index) => <tr key={line.id} className="border-b border-[#e7dfd2]"><td className="px-3 py-2"><strong>{line.label}</strong></td><td className="px-2 py-2 text-right">{line.quantity}</td><td className="px-2 py-2 text-right whitespace-nowrap">{money.format(line.unitPriceCents / 100)}</td><td className="px-2 py-2 text-right">{line.vatRate} %</td><td className="px-3 py-2 text-right font-bold whitespace-nowrap">{money.format((calculation.lineTotals[index]?.totalHtCents ?? 0) / 100)}</td></tr>)}</tbody></table><div className="mt-4 ml-auto w-full max-w-60 border border-[#e7dfd2] text-xs"><Total label="Total HT" value={money.format(calculation.totalHtCents / 100)} />{calculation.appliedDiscountCents ? <Total label="Remise" value={`− ${money.format(calculation.appliedDiscountCents / 100)}`} /> : null}{calculation.vatBreakdown.map((group) => <Total key={group.vatRate} label={`TVA ${group.vatRate} %`} value={money.format(group.vatCents / 100)} />)}<Total label="Total TVA" value={money.format(calculation.totalVatCents / 100)} /><div className="flex justify-between bg-[#650d1c] px-3 py-2 font-bold text-white"><span>TOTAL TTC</span><span>{money.format(calculation.totalTtcCents / 100)}</span></div></div></section>;
 }
 function CompactInfo({ title, value }: { title: string; value?: string }) {
   return value ? (

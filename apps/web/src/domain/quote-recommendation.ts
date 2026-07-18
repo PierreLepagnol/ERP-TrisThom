@@ -6,6 +6,8 @@ import type {
   QuoteTemplate,
 } from "@/lib/local-crm";
 import { recommendBusinessOffers } from "@/domain/business-reference/recommendation-engine";
+import { calculateQuoteTotals } from "@/domain/quote-calculation";
+import { compositionItemsFromText, createCatalogQuoteLine, createRecommendationQuoteLine } from "@/domain/quote-line";
 
 export type QuoteRecommendation = {
   id: string;
@@ -95,25 +97,13 @@ function lineFor(item: CatalogItem, guestCount: number): LocalQuoteLine {
   const quantity = ["personne", "plateau"].includes(normalize(item.unit))
     ? guestCount
     : Math.max(item.minimumQuantity, 1);
-  return {
-    id: crypto.randomUUID(),
-    label: item.name,
-    quantity,
-    unitPriceCents: item.unitPriceCents,
-    vatRate: item.vatRate,
-    details:
-      normalize(item.name).includes("cocktail brasserie")
-        ? cocktailRecipePlan.map(
-            ([name, quantity]) => `${name} : ${quantity * guestCount} pièces`,
-          )
-        : item.details,
-  };
-}
-
-function totalTtc(line: LocalQuoteLine) {
-  return Math.round(
-    line.quantity * line.unitPriceCents * (1 + line.vatRate / 100),
-  );
+  const line = createCatalogQuoteLine(item, crypto.randomUUID(), quantity);
+  const details = normalize(item.name).includes("cocktail brasserie")
+    ? cocktailRecipePlan.map(
+        ([name, quantity]) => `${name} : ${quantity * guestCount} pièces`,
+      )
+    : item.details;
+  return { ...line, details, compositionItems: details ? compositionItemsFromText(details) : line.compositionItems };
 }
 
 function dietaryWarnings(request: LocalRequest, item: CatalogItem) {
@@ -211,7 +201,7 @@ export function recommendQuotes({ request, catalog, dayRequests }: Recommendatio
     title: recommendation.familyName,
     quote: {
       template: recommendation.familyName.toLowerCase().includes("plateau") ? "plateau_repas" : recommendation.familyName.toLowerCase().includes("brunch") ? "brunch" : recommendation.familyName.toLowerCase().includes("buffet") ? "buffet_froid" : "cocktail",
-      lines: [{ id: crypto.randomUUID(), label: recommendation.familyName, quantity: request.guestCount ?? 1, unitPriceCents: Math.round(recommendation.priceTtcPerPersonCents / 1.1), vatRate: 10, details: recommendation.composition }],
+      lines: [createRecommendationQuoteLine({ id: crypto.randomUUID(), name: recommendation.familyName, summary: recommendation.summary, quantity: request.guestCount ?? 1, unitPriceCents: Math.round(recommendation.priceTtcPerPersonCents / 1.1), vatRate: 10, composition: recommendation.composition, estimatedFoodCostCents: recommendation.foodCostCents, estimatedProductionMinutes: recommendation.load.activeMinutes })],
       included: "Prestation culinaire et composition détaillée ci-dessus.",
       excluded: "Livraison, boissons, vaisselle, personnel et installation sauf mention contraire.",
       logistics: "Adresse, accès et conditions de prestation à confirmer.",
@@ -237,7 +227,7 @@ export function recommendQuotes({ request, catalog, dayRequests }: Recommendatio
       return {
         item,
         template,
-        totalTtcCents: totalTtc(line),
+        totalTtcCents: calculateQuoteTotals([line], 0).totalTtcCents,
         seasonMatch:
           item.seasonality.some((value) => normalize(value) === "toute l'annee") ||
           item.seasonality.some((value) => normalize(value) === season),

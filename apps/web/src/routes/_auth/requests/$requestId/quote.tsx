@@ -1,4 +1,4 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ChevronLeft,
   CircleAlert,
@@ -19,6 +19,7 @@ import {
   type LocalQuote,
   type LocalQuoteLine,
   type LocalRequest,
+  type CatalogItem,
   type QuoteTemplate,
   useLocalCrm,
 } from "@/lib/local-crm";
@@ -26,6 +27,22 @@ import { QuoteDocument } from "@/components/quotes/quote-document";
 import { recommendQuotes } from "@/domain/quote-recommendation";
 import { getRequestQualification } from "@/domain/request-qualification";
 import { calculateQuoteTotals } from "@/domain/quote-calculation";
+import { isQuoteDraftModified, isQuoteVersionFrozen } from "@/domain/quote-draft";
+import { canDeleteQuoteVersion } from "@/domain/quote-deletion";
+import { createCatalogQuoteLine, createFreeQuoteLine, quoteLineOrigin, type QuoteCompositionItem } from "@/domain/quote-line";
+import {
+  applyFreeCompositionText,
+  applyPersonalizedComposition,
+  applyPredefinedComposition,
+  cloneCompositionItems,
+  compositionItemsToCommercialText,
+  createCompositionItemFromCatalog,
+  createFreeCompositionItem,
+  isFormulaLine,
+  moveCompositionItem,
+  predefinedCompositions,
+  removeCompositionItem,
+} from "@/domain/quote-composition";
 
 export const Route = createFileRoute("/_auth/requests/$requestId/quote")({
   component: QuotePreparationPage,
@@ -35,16 +52,19 @@ const euro = new Intl.NumberFormat("fr-FR", {
   style: "currency",
   currency: "EUR",
 });
-const createLine = (): LocalQuoteLine => ({
-  id: crypto.randomUUID(),
-  label: "Nouvelle prestation",
-  quantity: 1,
-  unitPriceCents: 0,
-  vatRate: 10,
-});
+const createLine = (): LocalQuoteLine => createFreeQuoteLine(crypto.randomUUID());
+const originLabel = (line: LocalQuoteLine) => ({
+  catalog: "Catalogue",
+  recommendation: "Recommandation",
+  free: "Ligne libre",
+  legacy: "Ancienne ligne",
+})[quoteLineOrigin(line)];
+type CompositionMode = "preset" | "personalized" | "text";
+type CompositionDraft = { lineId: string; mode: CompositionMode; presetId: string; items: QuoteCompositionItem[]; freeText: string };
 
 function QuotePreparationPage() {
   const { requestId } = Route.useParams();
+  const navigate = useNavigate();
   const {
     requests,
     quotes,
@@ -52,6 +72,7 @@ function QuotePreparationPage() {
     saveQuote,
     createQuoteVersion,
     restoreQuoteVersion,
+    deleteQuoteVersion,
   } = useLocalCrm();
   const request = requests.find((item) => item._id === requestId);
   const storedQuote = quotes.find((item) => item.requestId === requestId);
@@ -72,6 +93,9 @@ function QuotePreparationPage() {
   });
   const [catalogItemId, setCatalogItemId] = useState("");
   const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [compositionDraft, setCompositionDraft] = useState<CompositionDraft | null>(null);
+  const [deleteVersionId, setDeleteVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     const version = storedQuote?.versions.find(
@@ -101,6 +125,16 @@ function QuotePreparationPage() {
     () => calculateQuoteTotals(quote.lines, quote.discountCents),
     [quote.discountCents, quote.lines],
   );
+  const selectedVersion = storedQuote?.versions.find(
+    (item) => item.id === (viewingVersionId ?? storedQuote.currentVersionId),
+  );
+  const versionToDelete = storedQuote?.versions.find((item) => item.id === deleteVersionId);
+  const isHistoricalVersion = Boolean(viewingVersionId && viewingVersionId !== storedQuote?.currentVersionId);
+  const isFrozenVersion = Boolean(selectedVersion && isQuoteVersionFrozen(selectedVersion.status));
+  const hasUnsavedChanges = useMemo(
+    () => isQuoteDraftModified(quote, selectedVersion),
+    [quote, selectedVersion],
+  );
   if (!request)
     return (
       <div className="rounded-xl border border-stone-200 bg-white p-8">
@@ -117,6 +151,7 @@ function QuotePreparationPage() {
     [request, quote, totals],
   );
   const applyRecommendation = (recommendation: (typeof recommendations)[number]) => {
+    if (isHistoricalVersion || isFrozenVersion) return;
     setQuote((current) => ({
       ...current,
       ...recommendation.quote,
@@ -132,7 +167,7 @@ function QuotePreparationPage() {
         line.id === id ? { ...line, ...changes } : line,
       ),
     }));
-  const persist = async (status: LocalQuote["status"]) => {
+  const persistLegacy = async (status: LocalQuote["status"]) => {
     if (
       viewingVersionId &&
       viewingVersionId !== storedQuote?.currentVersionId
@@ -162,6 +197,35 @@ function QuotePreparationPage() {
           : "Brouillon enregistré",
     );
   };
+  const persist = async (status: LocalQuote["status"]) => {
+    if (isHistoricalVersion || isFrozenVersion) {
+      toast.error("Cette version est figée. Créez une nouvelle version pour la modifier.");
+      return false;
+    }
+    if (status === "pret" && review.blockers.length) {
+      toast.error("Complétez les points indispensables avant de déclarer le devis prêt à envoyer.");
+      return false;
+    }
+    setIsSaving(true);
+    try {
+      await persistLegacy(status);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible d’enregistrer le devis.");
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  const openPrint = (versionId?: string) => {
+    const query = versionId ? `?version=${encodeURIComponent(versionId)}` : "";
+    window.open(`/print/requests/${request._id}/quote${query}`, "_blank", "noopener,noreferrer");
+  };
+  const printQuote = async () => {
+    if (isHistoricalVersion) return openPrint(viewingVersionId ?? undefined);
+    if (hasUnsavedChanges && !(await persist("brouillon"))) return;
+    openPrint();
+  };
   const addCatalogItem = () => {
     const item = catalog.find((entry) => entry.id === catalogItemId);
     if (!item) return;
@@ -169,14 +233,7 @@ function QuotePreparationPage() {
       ...current,
       lines: [
         ...current.lines,
-        {
-          id: crypto.randomUUID(),
-          label: item.name,
-          quantity: 1,
-          unitPriceCents: item.unitPriceCents,
-          vatRate: item.vatRate,
-          details: item.details,
-        },
+        createCatalogQuoteLine(item, crypto.randomUUID()),
       ],
     }));
     setCatalogItemId("");
@@ -199,14 +256,7 @@ function QuotePreparationPage() {
       template,
       lines: item
         ? [
-            {
-              id: crypto.randomUUID(),
-              label: item.name,
-              quantity: request.guestCount ?? 1,
-              unitPriceCents: item.unitPriceCents,
-              vatRate: item.vatRate,
-              details: item.details,
-            },
+            createCatalogQuoteLine(item, crypto.randomUUID(), request.guestCount ?? 1),
           ]
         : current.lines,
       included: item
@@ -216,6 +266,39 @@ function QuotePreparationPage() {
         ? "Livraison, boissons, vaisselle et personnel sauf mention contraire."
         : current.excluded,
     }));
+  };
+  const formulaLine = compositionDraft ? quote.lines.find((line) => line.id === compositionDraft.lineId) : undefined;
+  const openComposition = (line: LocalQuoteLine) => {
+    setCompositionDraft({
+      lineId: line.id,
+      mode: line.compositionItems?.length ? "personalized" : "preset",
+      presetId: predefinedCompositions.find((preset) => preset.active)?.id ?? "",
+      items: cloneCompositionItems(line.compositionItems ?? []),
+      freeText: line.details?.join("\n") ?? "",
+    });
+  };
+  const applyComposition = () => {
+    if (!compositionDraft || !formulaLine || isHistoricalVersion || isFrozenVersion) return;
+    const updated = compositionDraft.mode === "preset"
+      ? applyPredefinedComposition(formulaLine, predefinedCompositions.find((preset) => preset.id === compositionDraft.presetId) ?? predefinedCompositions[0]!)
+      : compositionDraft.mode === "personalized"
+        ? applyPersonalizedComposition(formulaLine, compositionDraft.items)
+        : applyFreeCompositionText(formulaLine, compositionDraft.freeText);
+    updateLine(formulaLine.id, updated);
+    setCompositionDraft(null);
+  };
+  const confirmDeleteDraft = async () => {
+    if (!storedQuote || !versionToDelete) return;
+    const removesQuote = storedQuote.versions.length === 1;
+    try {
+      await deleteQuoteVersion(request._id, versionToDelete.id);
+      setDeleteVersionId(null);
+      setViewingVersionId(null);
+      toast.success(removesQuote ? "Le devis brouillon a été supprimé. Le dossier client est conservé." : `Version ${versionToDelete.versionNumber} supprimée.`);
+      if (removesQuote) await navigate({ to: "/requests/$requestId", params: { requestId } });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de supprimer ce brouillon.");
+    }
   };
 
   return (
@@ -231,27 +314,31 @@ function QuotePreparationPage() {
         </Link>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => window.open(`/print/requests/${request._id}/quote`, "_blank", "noopener,noreferrer")}
+            onClick={() => void printQuote()}
+            disabled={isSaving}
             className="inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-3 py-2 text-sm font-bold"
           >
             <Printer className="size-4" />
-            Imprimer / Enregistrer en PDF
+            {hasUnsavedChanges ? "Enregistrer et ouvrir le PDF" : "Imprimer / Enregistrer en PDF"}
           </button>
           <button
-            onClick={() => persist("brouillon")}
+            onClick={() => void persist("brouillon")}
+            disabled={isSaving || isHistoricalVersion || isFrozenVersion}
             className="inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-3 py-2 text-sm font-bold"
           >
             <Save className="size-4" />
             Enregistrer
           </button>
           <button
-            onClick={() => persist("pret")}
+            onClick={() => void persist("pret")}
+            disabled={isSaving || isHistoricalVersion || isFrozenVersion}
             className="rounded-md border border-[#8b1629] px-3 py-2 text-sm font-bold text-[#8b1629]"
           >
             Prêt à envoyer
           </button>
           <button
-            onClick={() => persist("envoye")}
+            onClick={() => void persist("envoye")}
+            disabled={isSaving || isHistoricalVersion || isFrozenVersion}
             className="inline-flex items-center gap-1 rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white"
           >
             <Send className="size-4" />
@@ -259,6 +346,9 @@ function QuotePreparationPage() {
           </button>
         </div>
       </div>
+      <p className={`text-right text-xs font-semibold ${hasUnsavedChanges ? "text-amber-800" : "text-emerald-700"}`}>
+        {hasUnsavedChanges ? "Modifications non enregistrées" : "Modifications enregistrées"}
+      </p>
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(34rem,1.1fr)]">
       <div className="quote-editor-shell space-y-6">
       <section className={`rounded-xl border p-5 shadow-sm ${review.blockers.length ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
@@ -305,6 +395,7 @@ function QuotePreparationPage() {
           <button
             onClick={async () => {
               const next = await createQuoteVersion(request._id, quote);
+              setViewingVersionId(null);
               setQuote(next);
               toast.success(`Version ${next.version} créée`);
             }}
@@ -319,6 +410,7 @@ function QuotePreparationPage() {
             Modèle
             <select
               value={quote.template}
+              disabled={isHistoricalVersion || isFrozenVersion}
               onChange={(e) => applyTemplate(e.target.value as QuoteTemplate)}
               className="input"
             >
@@ -335,6 +427,7 @@ function QuotePreparationPage() {
             Validité
             <input
               type="date"
+              disabled={isHistoricalVersion || isFrozenVersion}
               value={new Date(quote.validUntil).toISOString().slice(0, 10)}
               onChange={(e) =>
                 setQuote((current) => ({
@@ -350,6 +443,7 @@ function QuotePreparationPage() {
             <input
               type="number"
               min="0"
+              disabled={isHistoricalVersion || isFrozenVersion}
               max="100"
               value={quote.depositPercent}
               onChange={(e) =>
@@ -368,24 +462,26 @@ function QuotePreparationPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-serif text-xl font-bold">Historique des versions</h2>
-              <p className="text-sm text-stone-500">Les versions envoyÃ©es restent figÃ©es.</p>
+              <p className="text-sm text-stone-500">Les versions envoyées restent figées.</p>
             </div>
             <span className="rounded-full bg-[#f5ecee] px-3 py-1 text-xs font-bold text-[#8b1629]">{storedQuote.quoteNumber}</span>
           </div>
           <div className="mt-4 space-y-2">
             {[...storedQuote.versions].sort((a, b) => b.versionNumber - a.versionNumber).map((version) => (
               <div key={version.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#fffaf4] p-3">
-                <div><p className="font-bold">Version {version.versionNumber} Â· {version.status}</p><p className="text-xs text-stone-500">{version.sentAt ? `EnvoyÃ©e le ${new Intl.DateTimeFormat("fr-FR").format(version.sentAt)}` : `ModifiÃ©e le ${new Intl.DateTimeFormat("fr-FR").format(version.updatedAt)}`}</p></div>
+                <div><p className="font-bold">Version {version.versionNumber} · {version.status}</p><p className="text-xs text-stone-500">{version.sentAt ? `Envoyée le ${new Intl.DateTimeFormat("fr-FR").format(version.sentAt)}` : `Modifiée le ${new Intl.DateTimeFormat("fr-FR").format(version.updatedAt)}`}</p></div>
                 <div className="flex gap-2">
                   <button onClick={() => setViewingVersionId(version.id)} className="rounded border border-stone-200 bg-white px-2 py-1 text-xs font-bold">Consulter</button>
-                  <button onClick={async () => { const next = await restoreQuoteVersion(request._id, version.id); setViewingVersionId(null); setQuote(next); toast.success(`Version ${next.version} crÃ©Ã©e Ã  partir de la version ${version.versionNumber}`); }} className="rounded border border-[#8b1629] bg-white px-2 py-1 text-xs font-bold text-[#8b1629]">Restaurer en nouvelle version</button>
+                  <button onClick={async () => { const next = await restoreQuoteVersion(request._id, version.id); setViewingVersionId(null); setQuote(next); toast.success(`Version ${next.version} créée à partir de la version ${version.versionNumber}`); }} className="rounded border border-[#8b1629] bg-white px-2 py-1 text-xs font-bold text-[#8b1629]">Restaurer en nouvelle version</button>
+                  {canDeleteQuoteVersion(version) ? <button onClick={() => setDeleteVersionId(version.id)} className="rounded border border-red-200 bg-white px-2 py-1 text-xs font-bold text-red-700">{storedQuote.versions.length === 1 ? "Supprimer le devis brouillon" : "Supprimer le brouillon"}</button> : null}
                 </div>
               </div>
             ))}
           </div>
         </section>
       ) : null}
-      {viewingVersionId && viewingVersionId !== storedQuote?.currentVersionId ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Vous consultez une version figÃ©e. <button onClick={() => setViewingVersionId(null)} className="font-bold underline">Revenir Ã  la version courante</button></div> : null}
+      {viewingVersionId && viewingVersionId !== storedQuote?.currentVersionId ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Vous consultez une version figée. <button onClick={() => setViewingVersionId(null)} className="font-bold underline">Revenir à la version courante</button></div> : null}
+      <fieldset disabled={isHistoricalVersion || isFrozenVersion} className="contents">
       <section className="rounded-xl border border-stone-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-6 py-4">
           <div>
@@ -444,7 +540,7 @@ function QuotePreparationPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {quote.lines.map((line) => (
+              {quote.lines.map((line, index) => (
                 <>
                   <tr key={line.id}>
                     <td className="px-6 py-3">
@@ -456,6 +552,8 @@ function QuotePreparationPage() {
                         }
                         className="w-full rounded border border-stone-200 px-2 py-2"
                       />
+                      <p className="mt-1 text-[10px] font-bold tracking-wide text-stone-400 uppercase">{originLabel(line)}</p>
+                      {isFormulaLine(line) ? <button type="button" onClick={() => openComposition(line)} className="mt-2 text-xs font-bold text-[#8b1629] underline underline-offset-2">Composer la formule</button> : null}
                     </td>
                     <td className="px-3 py-3">
                       <input
@@ -470,6 +568,7 @@ function QuotePreparationPage() {
                         }
                         className="w-full rounded border border-stone-200 px-2 py-2"
                       />
+                      <p className="mt-1 text-[10px] text-stone-500">{line.unit ?? "unité"}</p>
                     </td>
                     <td className="px-3 py-3">
                       <input
@@ -506,12 +605,7 @@ function QuotePreparationPage() {
                       </select>
                     </td>
                     <td className="px-3 py-3 text-right font-semibold">
-                      {euro.format(
-                        (line.quantity *
-                          line.unitPriceCents *
-                          (1 + line.vatRate / 100)) /
-                          100,
-                      )}
+                      {euro.format((totals.lineTotals[index]?.totalTtcCents ?? 0) / 100)}
                     </td>
                     <td className="px-3 py-3">
                       <button
@@ -539,15 +633,23 @@ function QuotePreparationPage() {
                           <textarea
                             value={line.details.join("\n")}
                             onChange={(e) =>
-                              updateLine(line.id, {
-                                details: e.target.value
-                                  .split("\n")
-                                  .filter(Boolean),
-                              })
+                              {
+                                updateLine(line.id, { details: e.target.value.split("\n") });
+                              }
                             }
                             className="min-h-20 rounded border border-stone-200 bg-white p-2 text-sm font-normal"
                           />
                         </label>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {line.estimatedFoodCostCents !== undefined || line.estimatedProductionMinutes !== undefined ? (
+                    <tr key={`${line.id}-internal`}>
+                      <td colSpan={6} className="bg-stone-50 px-6 pb-3 text-xs text-stone-600">
+                        <details>
+                          <summary className="cursor-pointer font-semibold">Informations internes</summary>
+                          <p className="mt-2">{line.estimatedFoodCostCents !== undefined ? `Coût matière estimé : ${euro.format(line.estimatedFoodCostCents / 100)} HT` : ""}{line.estimatedFoodCostCents !== undefined && line.estimatedProductionMinutes !== undefined ? " · " : ""}{line.estimatedProductionMinutes !== undefined ? `Temps de production estimé : ${line.estimatedProductionMinutes} min` : ""}</p>
+                        </details>
                       </td>
                     </tr>
                   ) : null}
@@ -632,14 +734,146 @@ function QuotePreparationPage() {
       <p className="text-center text-xs text-stone-400">
         Le devis est sauvegardé dans ce navigateur. L’impression permet de l’enregistrer en PDF.
       </p>
+      </fieldset>
       </div>
       <div className="quote-preview xl:sticky xl:top-6">
         <QuoteDocument quote={storedQuote ?? { id: "preview", requestId: request._id, quoteNumber: quote.number ?? "Brouillon", currentVersionId: "preview", status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, totalHtCents: totals.totalHtCents, totalVatCents: totals.totalVatCents, totalTtcCents: totals.totalTtcCents, versions: [] }} version={{ id: "preview", versionNumber: quote.version, status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, lines: quote.lines, discountCents: quote.discountCents, issueDate: quote.issueDate, validUntil: quote.validUntil, depositPercent: quote.depositPercent, included: quote.included, excluded: quote.excluded, logistics: quote.logistics, introduction: quote.introduction, conditions: quote.conditions, remarks: quote.remarks, template: quote.template, totalHtCents: totals.totalHtCents, totalVatCents: totals.totalVatCents, totalTtcCents: totals.totalTtcCents }} request={request} />
       </div>
       </div>
+      {compositionDraft && formulaLine ? <QuoteCompositionEditor
+        line={formulaLine}
+        guestCount={request.guestCount}
+        catalog={catalog}
+        draft={compositionDraft}
+        onChange={setCompositionDraft}
+        onCancel={() => setCompositionDraft(null)}
+        onApply={applyComposition}
+      /> : null}
+      {versionToDelete && storedQuote ? <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/30 p-4" role="dialog" aria-modal="true" aria-label="Supprimer le brouillon">
+        <section className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
+          <h2 className="font-serif text-2xl font-bold">Supprimer le brouillon ?</h2>
+          <p className="mt-3 text-sm text-stone-700">Devis {storedQuote.quoteNumber} · version {versionToDelete.versionNumber}.</p>
+          <p className="mt-2 text-sm text-stone-600">Seul ce brouillon sera supprimé. Le dossier client, ses notes et ses informations seront conservés.</p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" onClick={() => setDeleteVersionId(null)} className="rounded-md border border-stone-200 px-4 py-2 text-sm font-bold">Annuler</button>
+            <button type="button" onClick={() => void confirmDeleteDraft()} className="rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm font-bold text-red-700">Supprimer le brouillon</button>
+          </div>
+        </section>
+      </div> : null}
       <style>{`@media print { @page { size: A4; margin: 0; } html, body { background: #fbf6ee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .quote-page > :not(.quote-preview), .quote-editor-shell, .quote-page > .grid > .quote-editor-shell { display: none !important; } .quote-page > .grid { display: block !important; } .quote-preview { display: block !important; position: static !important; width: 100% !important; } .quote-document-root { box-shadow: none !important; } .quote-document-root > div { min-height: 0 !important; } thead { display: table-header-group; } tr { break-inside: avoid; page-break-inside: avoid; } button, input, select, textarea, details, summary { display: none !important; } }`}</style>
     </div>
   );
+}
+
+function QuoteCompositionEditor({
+  line,
+  guestCount,
+  catalog,
+  draft,
+  onChange,
+  onCancel,
+  onApply,
+}: {
+  line: LocalQuoteLine;
+  guestCount?: number;
+  catalog: CatalogItem[];
+  draft: CompositionDraft;
+  onChange: (draft: CompositionDraft) => void;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  const [catalogItemId, setCatalogItemId] = useState("");
+  const [freeName, setFreeName] = useState("");
+  const [freeQuantity, setFreeQuantity] = useState(1);
+  const [freeUnit, setFreeUnit] = useState("portion");
+  const catalogGroups = ["Entrées", "Pièces froides", "Pièces chaudes", "Plats", "Accompagnements", "Desserts", "Autres"];
+  const clientPreview = draft.mode === "text" ? draft.freeText : compositionItemsToCommercialText(draft.items).join("\n");
+  const updateItem = (index: number, changes: Partial<QuoteCompositionItem>) => onChange({
+    ...draft,
+    items: draft.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...changes } : item),
+  });
+  const addCatalogItem = () => {
+    const item = catalog.find((entry) => entry.id === catalogItemId);
+    if (!item) return;
+    onChange({ ...draft, items: [...draft.items, createCompositionItemFromCatalog(item, 1)] });
+    setCatalogItemId("");
+  };
+  const addFreeItem = () => {
+    if (!freeName.trim()) return;
+    onChange({ ...draft, items: [...draft.items, createFreeCompositionItem(freeName, freeQuantity, freeUnit)] });
+    setFreeName("");
+  };
+  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 md:items-center" role="dialog" aria-modal="true" aria-label="Composer la formule">
+    <section className="w-full max-w-3xl rounded-xl bg-white p-5 shadow-2xl">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold tracking-[.16em] uppercase text-[#8b1629]">Composition de la formule</p>
+          <h2 className="mt-1 font-serif text-2xl font-bold">{line.label}</h2>
+          <p className="mt-1 text-sm text-stone-500">{guestCount ? `${guestCount} convives` : "Nombre de convives à préciser"} · la composition est enregistrée uniquement quand vous appliquez.</p>
+        </div>
+        <button type="button" onClick={onCancel} className="text-sm font-bold text-stone-500">Fermer</button>
+      </div>
+      <div className="mt-5 flex flex-wrap gap-2 border-b border-stone-200 pb-4">
+        {(["preset", "personalized", "text"] as const).map((mode) => <button key={mode} type="button" onClick={() => onChange({ ...draft, mode })} className={`rounded-md px-3 py-2 text-sm font-bold ${draft.mode === mode ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-700"}`}>
+          {mode === "preset" ? "Composition prédéfinie" : mode === "personalized" ? "Composition personnalisée" : "Texte libre"}
+        </button>)}
+      </div>
+      {draft.mode === "preset" ? <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {predefinedCompositions.filter((preset) => preset.active).map((preset) => <label key={preset.id} className={`cursor-pointer rounded-lg border p-3 ${draft.presetId === preset.id ? "border-[#8b1629] bg-[#fffaf4]" : "border-stone-200"}`}>
+          <input type="radio" className="mr-2" checked={draft.presetId === preset.id} onChange={() => onChange({ ...draft, presetId: preset.id })} />
+          <span className="font-bold">{preset.name}</span>
+          <span className="mt-1 block text-xs text-stone-500">{compositionItemsToCommercialText(preset.compositionItems).join(" · ")}</span>
+        </label>)}
+      </div> : null}
+      {draft.mode === "personalized" ? <div className="mt-4 space-y-4">
+        <div className="flex flex-wrap gap-2 rounded-lg bg-stone-50 p-3">
+          <select value={catalogItemId} onChange={(event) => setCatalogItemId(event.target.value)} className="min-w-56 rounded border border-stone-200 bg-white px-2 py-2 text-sm">
+            <option value="">Ajouter un élément du catalogue…</option>
+            {catalogGroups.map((group) => {
+              const items = catalog.filter((item) => item.active && (group === "Autres" || compositionGroup(item.category) === group));
+              return items.length ? <optgroup key={group} label={group}>{items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup> : null;
+            })}
+          </select>
+          <button type="button" onClick={addCatalogItem} disabled={!catalogItemId} className="rounded border border-[#8b1629] px-3 py-2 text-sm font-bold text-[#8b1629] disabled:opacity-40">Ajouter</button>
+        </div>
+        <div className="flex flex-wrap gap-2 rounded-lg bg-stone-50 p-3">
+          <input value={freeName} onChange={(event) => setFreeName(event.target.value)} placeholder="Élément libre" className="min-w-48 rounded border border-stone-200 px-2 py-2 text-sm" />
+          <input type="number" min="0" value={freeQuantity} onChange={(event) => setFreeQuantity(Number(event.target.value))} className="w-20 rounded border border-stone-200 px-2 py-2 text-sm" />
+          <input value={freeUnit} onChange={(event) => setFreeUnit(event.target.value)} className="w-28 rounded border border-stone-200 px-2 py-2 text-sm" />
+          <button type="button" onClick={addFreeItem} className="rounded border border-stone-300 px-3 py-2 text-sm font-bold">Ajouter libre</button>
+        </div>
+        <div className="space-y-2">
+          {draft.items.length ? draft.items.map((item, index) => <div key={`${item.catalogItemId ?? item.name}-${index}`} className="flex flex-wrap items-center gap-2 rounded border border-stone-200 p-2">
+            <span className="min-w-48 flex-1 text-sm font-semibold">{item.name}</span>
+            <input aria-label={`Quantité ${item.name}`} type="number" min="0" value={item.quantity ?? ""} onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })} className="w-20 rounded border border-stone-200 px-2 py-1 text-sm" />
+            <input aria-label={`Unité ${item.name}`} value={item.unit ?? ""} onChange={(event) => updateItem(index, { unit: event.target.value })} className="w-24 rounded border border-stone-200 px-2 py-1 text-sm" />
+            <button type="button" aria-label="Monter" onClick={() => onChange({ ...draft, items: moveCompositionItem(draft.items, index, -1) })} className="px-1 text-sm">↑</button>
+            <button type="button" aria-label="Descendre" onClick={() => onChange({ ...draft, items: moveCompositionItem(draft.items, index, 1) })} className="px-1 text-sm">↓</button>
+            <button type="button" aria-label="Supprimer l'élément" onClick={() => onChange({ ...draft, items: removeCompositionItem(draft.items, index) })} className="px-1 text-sm text-[#8b1629]">×</button>
+          </div>) : <p className="text-sm text-stone-500">Ajoutez les éléments qui composent cette formule.</p>}
+        </div>
+      </div> : null}
+      {draft.mode === "text" ? <textarea value={draft.freeText} onChange={(event) => onChange({ ...draft, freeText: event.target.value })} className="mt-4 min-h-48 w-full rounded border border-stone-200 p-3 text-sm" placeholder="Décrivez librement la composition proposée au client." /> : null}
+      <div className="mt-5 rounded-lg bg-[#fffaf4] p-3">
+        <p className="text-xs font-bold tracking-wide uppercase text-stone-500">Aperçu du texte client</p>
+        <p className="mt-2 whitespace-pre-line text-sm text-stone-800">{clientPreview || "Aucun élément renseigné."}</p>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-md border border-stone-200 px-4 py-2 text-sm font-bold">Annuler</button>
+        <button type="button" onClick={onApply} className="rounded-md bg-[#650d1c] px-4 py-2 text-sm font-bold text-white">Appliquer</button>
+      </div>
+    </section>
+  </div>;
+}
+
+function compositionGroup(category: string): string {
+  if (/froid/i.test(category)) return "Pièces froides";
+  if (/chaud/i.test(category)) return "Pièces chaudes";
+  if (/dessert|sucr/i.test(category)) return "Desserts";
+  if (/entr/i.test(category)) return "Entrées";
+  if (/accompagnement/i.test(category)) return "Accompagnements";
+  if (/plat/i.test(category)) return "Plats";
+  return "Autres";
 }
 
 function getQuoteReview(
@@ -694,13 +928,18 @@ export function legacyPrintQuote(
   const number =
     quote.number ??
     `D-${new Date().getFullYear()}-${request._id.slice(0, 4).toUpperCase()}`;
+  const calculation = calculateQuoteTotals(quote.lines, quote.discountCents);
   const rows = quote.lines
     .map(
-      (line) =>
-        `<tr><td><strong>${escapeHtml(line.label)}</strong>${line.details?.length ? `<br><span class="muted">${line.details.map(escapeHtml).join("<br>")}</span>` : ""}</td><td>${line.quantity}</td><td>${money(line.unitPriceCents)}</td><td>${line.vatRate} %</td><td>${money(Math.round(line.quantity * line.unitPriceCents * (1 + line.vatRate / 100)))}</td></tr>`,
+      (line, index) =>
+        `<tr><td><strong>${escapeHtml(line.label)}</strong>${line.details?.length ? `<br><span class="muted">${line.details.map(escapeHtml).join("<br>")}</span>` : ""}</td><td>${line.quantity}</td><td>${money(line.unitPriceCents)}</td><td>${line.vatRate} %</td><td>${money(calculation.lineTotals[index]?.totalTtcCents ?? 0)}</td></tr>`,
     )
     .join("");
-  const totals = calculateQuoteTotals(quote.lines, quote.discountCents);
+  const totals = {
+    excludingVat: calculation.totalHtCents,
+    vat: calculation.totalVatCents,
+    includingVat: calculation.totalTtcCents,
+  };
   popup.document.write(
     `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${number}</title><style>body{font:12px Arial;color:#251e1b;margin:42px;line-height:1.45}header{border-bottom:4px solid #650d1c;padding-bottom:18px;display:flex;justify-content:space-between}h1{font:700 34px Georgia;margin:6px 0;color:#650d1c}h2{font:700 19px Georgia;margin:28px 0 8px}.muted{color:#756b65}.grid{display:grid;grid-template-columns:1fr 1fr;gap:30px}.box{background:#fffaf4;padding:14px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#650d1c;color:#fff;text-align:left;padding:9px}td{padding:10px 8px;border-bottom:1px solid #e8ded8}td:last-child,th:last-child{text-align:right}.totals{margin-left:auto;width:260px;margin-top:18px}.total{font:700 20px Georgia;border-top:2px solid #650d1c;padding-top:9px}.footer{position:fixed;bottom:20px;font-size:9px;color:#756b65}@media print{body{margin:22px}}</style></head><body><header><div><p class="muted">Traiteur de cuisine française maison<br>Val-d’Oise & Île-de-France</p><h1>DEVIS</h1><p><strong>${number}</strong> · Émission : ${new Intl.DateTimeFormat("fr-FR").format(Date.now())}<br>Validité : 7 jours</p></div><div style="text-align:right"><strong>TRISTHOM · Bouillon Comptoir</strong><br>90 boulevard de Montmorency<br>95170 Deuil-la-Barre<br>SIRET : 943 286 690 00012<br>contact@bouilloncomptoir.fr</div></header><h2>${escapeHtml(request.eventType || "Prestation")}</h2><p class="muted">${request.eventDate ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(request.eventDate) : "Date à confirmer"} · ${request.guestCount ?? "—"} personnes · ${escapeHtml(request.eventAddress || "Adresse à confirmer")}</p><div class="grid"><div class="box"><strong>Client / lieu de l’événement</strong><br>${escapeHtml(request.contactName)}<br>${escapeHtml(request.contactEmail || "")}<br>${escapeHtml(request.contactPhone || "")}</div><div class="box"><strong>Proposition</strong><br>${escapeHtml(request.message || "Proposition commerciale Bouillon Comptoir.")}</div></div><h2>Récapitulatif chiffré</h2><table><thead><tr><th>Description</th><th>Qté</th><th>PU HT</th><th>TVA</th><th>Total TTC</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><p>Total HT <span style="float:right">${money(totals.excludingVat)}</span></p><p>TVA <span style="float:right">${money(totals.vat)}</span></p><p>Remise <span style="float:right">− ${money(quote.discountCents)}</span></p><p class="total">TOTAL TTC <span style="float:right">${money(totals.includingVat)}</span></p></div><h2>Conditions</h2><p>Devis valable 7 jours. Acompte de 50 % à la confirmation. Prestation sous réserve de disponibilité de production et de logistique. Les accès, horaires et conditions de livraison sont à confirmer avant validation.</p><p class="footer">Bouillon Comptoir · TRISTHOM SAS · 90 boulevard de Montmorency, 95170 Deuil-la-Barre · contact@bouilloncomptoir.fr</p><script>window.onload=()=>window.print()</script></body></html>`,
   );
