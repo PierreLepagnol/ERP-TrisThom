@@ -14,6 +14,7 @@ import {
   type RequestStatus,
 } from "@/domain/request-status";
 import { foodCostCentsByCatalogItemId } from "@/domain/catalog-food-costs";
+import { calculateQuoteTotals } from "@/domain/quote-calculation";
 
 export type { RequestStatus } from "@/domain/request-status";
 export type RequestSource =
@@ -631,25 +632,6 @@ const cloneDefaultCatalog = () =>
     recommendedFor: [...item.recommendedFor],
   }));
 
-function calculateQuoteTotals(lines: LocalQuoteLine[], discountCents: number) {
-  const rawHtCents = lines.reduce(
-    (total, line) => total + line.quantity * line.unitPriceCents,
-    0,
-  );
-  const rawTtcCents = lines.reduce(
-    (total, line) =>
-      total + line.quantity * line.unitPriceCents * (1 + line.vatRate / 100),
-    0,
-  );
-  const totalHtCents = Math.max(0, Math.round(rawHtCents - discountCents));
-  const totalTtcCents = Math.max(0, Math.round(rawTtcCents - discountCents));
-  return {
-    totalHtCents,
-    totalVatCents: Math.max(0, totalTtcCents - totalHtCents),
-    totalTtcCents,
-  };
-}
-
 function quoteVersionFromLegacy(
   quote: Omit<LocalQuote, "versions">,
   versionNumber: number,
@@ -674,7 +656,7 @@ function quoteVersionFromLegacy(
     conditions: quote.conditions,
     remarks: quote.remarks,
     template: quote.template ?? "libre",
-    ...calculateQuoteTotals(quote.lines ?? [], quote.discountCents ?? 0),
+    ...quoteTotalsFields(quote.lines ?? [], quote.discountCents ?? 0),
   };
 }
 
@@ -717,6 +699,28 @@ function currentQuoteVersion(quote: Quote) {
   );
 }
 
+function quoteTotalsFields(lines: LocalQuoteLine[], discountCents: number) {
+  const calculation = calculateQuoteTotals(lines, discountCents);
+  return {
+    totalHtCents: calculation.totalHtCents,
+    totalVatCents: calculation.totalVatCents,
+    totalTtcCents: calculation.totalTtcCents,
+  };
+}
+
+function normalizeQuoteTotals(quote: Quote): Quote {
+  const versions = quote.versions.map((version) => ({
+    ...version,
+    ...quoteTotalsFields(version.lines, version.discountCents),
+  }));
+  const normalized = { ...quote, versions };
+  const current = currentQuoteVersion(normalized);
+  return {
+    ...normalized,
+    ...(current ? quoteTotalsFields(current.lines, current.discountCents) : quoteTotalsFields([], 0)),
+  };
+}
+
 function migrateLegacyQuotes(requests: LocalRequest[]): Quote[] {
   return requests.flatMap((request) => {
     if (!request.quote) return [];
@@ -738,7 +742,7 @@ function migrateLegacyQuotes(requests: LocalRequest[]): Quote[] {
     const versions = [...historical, current].sort(
       (a, b) => a.versionNumber - b.versionNumber,
     );
-    const totals = calculateQuoteTotals(
+    const totals = quoteTotalsFields(
       legacy.lines ?? [],
       legacy.discountCents ?? 0,
     );
@@ -773,9 +777,9 @@ function readQuotes(requests: LocalRequest[]) {
       ...migrateLegacyQuotes(requests).filter(
         (quote) => !knownRequestIds.has(quote.requestId),
       ),
-    ];
+    ].map(normalizeQuoteTotals);
   } catch {
-    return migrateLegacyQuotes(requests);
+    return migrateLegacyQuotes(requests).map(normalizeQuoteTotals);
   }
 }
 
@@ -1435,7 +1439,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
         current?.createdAt ?? now,
         current?.id,
       );
-      const totals = calculateQuoteTotals(version.lines, version.discountCents);
+      const totals = quoteTotalsFields(version.lines, version.discountCents);
       const sentAt = quote.status === "envoye" ? existing?.sentAt ?? now : existing?.sentAt;
       const storedQuote: Quote = existing
         ? {
@@ -1540,7 +1544,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
         Math.max(...storedQuote.versions.map((item) => item.versionNumber)) + 1,
         now,
       );
-      const totals = calculateQuoteTotals(
+      const totals = quoteTotalsFields(
         nextVersion.lines,
         nextVersion.discountCents,
       );

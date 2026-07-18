@@ -4,6 +4,10 @@
 
 Une **proposition de devis** est une piste commerciale chiffrée, créée à partir d'une demande et du catalogue. Elle n'est ni un devis envoyé ni une réservation. Le traiteur la valide et l'adapte avant toute communication au client.
 
+## Contrôle avant envoi
+
+Le **contrôle avant envoi** est la vérification visible effectuée sur un devis avant de le déclarer prêt. Il distingue les informations indispensables à compléter des éléments à relire par le traiteur. Il ne remplace jamais la décision du traiteur ni la vérification des recettes, des allergènes et des conditions de prestation.
+
 ## Offre alimentaire
 
 L'**offre alimentaire** couvre uniquement les mets. La livraison, le personnel, les boissons, la vaisselle, l'installation et le matériel sont des options distinctes, sauf mention explicite d'une offre tout compris.

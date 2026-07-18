@@ -1,6 +1,8 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import {
   ChevronLeft,
+  CircleAlert,
+  CircleCheck,
   CirclePlus,
   CopyPlus,
   Printer,
@@ -22,6 +24,8 @@ import {
 } from "@/lib/local-crm";
 import { QuoteDocument } from "@/components/quotes/quote-document";
 import { recommendQuotes } from "@/domain/quote-recommendation";
+import { getRequestQualification } from "@/domain/request-qualification";
+import { calculateQuoteTotals } from "@/domain/quote-calculation";
 
 export const Route = createFileRoute("/_auth/requests/$requestId/quote")({
   component: QuotePreparationPage,
@@ -93,7 +97,10 @@ function QuotePreparationPage() {
       }));
     }
   }, [request, quotes, storedQuote, viewingVersionId]);
-  const totals = useMemo(() => calculate(quote), [quote]);
+  const totals = useMemo(
+    () => calculateQuoteTotals(quote.lines, quote.discountCents),
+    [quote.discountCents, quote.lines],
+  );
   if (!request)
     return (
       <div className="rounded-xl border border-stone-200 bg-white p-8">
@@ -105,6 +112,10 @@ function QuotePreparationPage() {
     catalog,
     dayRequests: requests.filter((item) => item.eventDate === request.eventDate),
   });
+  const review = useMemo(
+    () => getQuoteReview(request, quote, totals),
+    [request, quote, totals],
+  );
   const applyRecommendation = (recommendation: (typeof recommendations)[number]) => {
     setQuote((current) => ({
       ...current,
@@ -135,6 +146,10 @@ function QuotePreparationPage() {
       toast.error(
         "Le devis envoyé est figé. Créez une nouvelle version avant modification.",
       );
+      return;
+    }
+    if (status === "pret" && review.blockers.length) {
+      toast.error("Complétez les points indispensables avant de déclarer le devis prêt à envoyer.");
       return;
     }
     await saveQuote(request._id, { ...quote, status });
@@ -246,6 +261,18 @@ function QuotePreparationPage() {
       </div>
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(34rem,1.1fr)]">
       <div className="quote-editor-shell space-y-6">
+      <section className={`rounded-xl border p-5 shadow-sm ${review.blockers.length ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+        <div className="flex items-start gap-3">
+          {review.blockers.length ? <CircleAlert className="mt-0.5 size-5 shrink-0 text-amber-800" /> : <CircleCheck className="mt-0.5 size-5 shrink-0 text-emerald-800" />}
+          <div>
+            <p className="text-xs font-bold tracking-[.16em] uppercase text-stone-600">Contrôle avant envoi</p>
+            <h2 className="mt-1 font-serif text-xl font-bold">{review.blockers.length ? "Le devis n’est pas encore prêt" : "Le devis peut être relu avant envoi"}</h2>
+            <p className="mt-1 text-sm text-stone-600">L’assistant vérifie les éléments commerciaux essentiels ; la décision finale reste la vôtre.</p>
+          </div>
+        </div>
+        {review.blockers.length ? <div className="mt-4"><p className="text-sm font-bold text-amber-950">À compléter</p><ul className="mt-2 space-y-1 text-sm text-amber-950">{review.blockers.map((item) => <li key={item}>• {item}</li>)}</ul></div> : null}
+        {review.alerts.length ? <div className="mt-4 border-t border-black/10 pt-4"><p className="text-sm font-bold text-stone-800">À vérifier avant de l’envoyer</p><ul className="mt-2 space-y-1 text-sm text-stone-700">{review.alerts.map((item) => <li key={item}>• {item}</li>)}</ul></div> : null}
+      </section>
       <section className="rounded-xl border border-[#d9b8bf] bg-[#fffaf4] p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -549,15 +576,15 @@ function QuotePreparationPage() {
             </label>
             <div className="flex justify-between text-sm">
               <span>Total HT</span>
-              <strong>{euro.format(totals.excludingVat / 100)}</strong>
+              <strong>{euro.format(totals.totalHtCents / 100)}</strong>
             </div>
             <div className="flex justify-between text-sm">
               <span>TVA</span>
-              <strong>{euro.format(totals.vat / 100)}</strong>
+              <strong>{euro.format(totals.totalVatCents / 100)}</strong>
             </div>
             <div className="flex justify-between border-t border-stone-200 pt-3 font-serif text-xl">
               <span>Total TTC</span>
-              <strong>{euro.format(totals.includingVat / 100)}</strong>
+              <strong>{euro.format(totals.totalTtcCents / 100)}</strong>
             </div>
           </div>
         </div>
@@ -607,7 +634,7 @@ function QuotePreparationPage() {
       </p>
       </div>
       <div className="quote-preview xl:sticky xl:top-6">
-        <QuoteDocument quote={storedQuote ?? { id: "preview", requestId: request._id, quoteNumber: quote.number ?? "Brouillon", currentVersionId: "preview", status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, totalHtCents: totals.excludingVat, totalVatCents: totals.vat, totalTtcCents: totals.includingVat, versions: [] }} version={{ id: "preview", versionNumber: quote.version, status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, lines: quote.lines, discountCents: quote.discountCents, issueDate: quote.issueDate, validUntil: quote.validUntil, depositPercent: quote.depositPercent, included: quote.included, excluded: quote.excluded, logistics: quote.logistics, introduction: quote.introduction, conditions: quote.conditions, remarks: quote.remarks, template: quote.template, totalHtCents: totals.excludingVat, totalVatCents: totals.vat, totalTtcCents: totals.includingVat }} request={request} />
+        <QuoteDocument quote={storedQuote ?? { id: "preview", requestId: request._id, quoteNumber: quote.number ?? "Brouillon", currentVersionId: "preview", status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, totalHtCents: totals.totalHtCents, totalVatCents: totals.totalVatCents, totalTtcCents: totals.totalTtcCents, versions: [] }} version={{ id: "preview", versionNumber: quote.version, status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, lines: quote.lines, discountCents: quote.discountCents, issueDate: quote.issueDate, validUntil: quote.validUntil, depositPercent: quote.depositPercent, included: quote.included, excluded: quote.excluded, logistics: quote.logistics, introduction: quote.introduction, conditions: quote.conditions, remarks: quote.remarks, template: quote.template, totalHtCents: totals.totalHtCents, totalVatCents: totals.totalVatCents, totalTtcCents: totals.totalTtcCents }} request={request} />
       </div>
       </div>
       <style>{`@media print { @page { size: A4; margin: 0; } html, body { background: #fbf6ee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .quote-page > :not(.quote-preview), .quote-editor-shell, .quote-page > .grid > .quote-editor-shell { display: none !important; } .quote-page > .grid { display: block !important; } .quote-preview { display: block !important; position: static !important; width: 100% !important; } .quote-document-root { box-shadow: none !important; } .quote-document-root > div { min-height: 0 !important; } thead { display: table-header-group; } tr { break-inside: avoid; page-break-inside: avoid; } button, input, select, textarea, details, summary { display: none !important; } }`}</style>
@@ -615,32 +642,49 @@ function QuotePreparationPage() {
   );
 }
 
-function calculate(quote: LocalQuote) {
-  const excludingVat =
-    quote.lines.reduce(
-      (total, line) => total + line.quantity * line.unitPriceCents,
-      0,
-    ) - quote.discountCents;
-  const includingVatBeforeDiscount = quote.lines.reduce(
-    (total, line) =>
-      total + line.quantity * line.unitPriceCents * (1 + line.vatRate / 100),
-    0,
+function getQuoteReview(
+  request: LocalRequest,
+  quote: LocalQuote,
+  totals: ReturnType<typeof calculateQuoteTotals>,
+) {
+  const blockers: string[] = [];
+  const alerts: string[] = [];
+  const validLines = quote.lines.filter(
+    (line) => line.label.trim() && line.quantity > 0 && line.unitPriceCents > 0,
   );
-  const includingVat = Math.max(
-    0,
-    Math.round(includingVatBeforeDiscount - quote.discountCents),
-  );
-  return {
-    excludingVat: Math.max(0, excludingVat),
-    includingVat,
-    vat: Math.max(0, includingVat - Math.max(0, excludingVat)),
-  };
+
+  if (validLines.length === 0)
+    blockers.push("Ajoutez au moins une prestation chiffrée (libellé, quantité et prix).");
+  if (totals.totalTtcCents <= 0)
+    blockers.push("Le total du devis doit être supérieur à 0 €.");
+  if (!request.contactEmail && !request.contactPhone)
+    blockers.push("Ajoutez au moins un moyen de contact pour le client.");
+
+  const missingEventDetails = getRequestQualification(request)
+    .filter((criterion) => ["date", "location", "guestCount", "service"].includes(criterion.id) && !criterion.complete)
+    .map((criterion) => criterion.label);
+  if (missingEventDetails.length)
+    alerts.push(`Informations événement à confirmer : ${missingEventDetails.join(", ")}.`);
+  if (!request.budgetCents && !request.budgetPerPersonCents)
+    alerts.push("Aucun budget client renseigné : vérifiez le positionnement commercial du prix.");
+  else {
+    const budget = request.budgetCents ?? (request.budgetPerPersonCents ?? 0) * (request.guestCount ?? 0);
+    if (budget > 0 && totals.totalTtcCents > budget)
+      alerts.push(`Le devis dépasse le budget annoncé de ${euro.format((totals.totalTtcCents - budget) / 100)} TTC.`);
+  }
+  if (request.dietaryRequirements)
+    alerts.push("Contraintes alimentaires à relire recette par recette avant envoi.");
+  if (!quote.included.trim() || !quote.excluded.trim())
+    alerts.push("Précisez ce qui est inclus et exclu pour éviter tout malentendu avec le client.");
+  if (!quote.logistics.trim())
+    alerts.push("Conditions de livraison, accès ou installation à confirmer.");
+
+  return { blockers, alerts };
 }
 
 export function legacyPrintQuote(
   request: LocalRequest,
   quote: LocalQuote,
-  totals: ReturnType<typeof calculate>,
 ) {
   const popup = window.open("", "_blank");
   if (!popup) {
@@ -656,6 +700,7 @@ export function legacyPrintQuote(
         `<tr><td><strong>${escapeHtml(line.label)}</strong>${line.details?.length ? `<br><span class="muted">${line.details.map(escapeHtml).join("<br>")}</span>` : ""}</td><td>${line.quantity}</td><td>${money(line.unitPriceCents)}</td><td>${line.vatRate} %</td><td>${money(Math.round(line.quantity * line.unitPriceCents * (1 + line.vatRate / 100)))}</td></tr>`,
     )
     .join("");
+  const totals = calculateQuoteTotals(quote.lines, quote.discountCents);
   popup.document.write(
     `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${number}</title><style>body{font:12px Arial;color:#251e1b;margin:42px;line-height:1.45}header{border-bottom:4px solid #650d1c;padding-bottom:18px;display:flex;justify-content:space-between}h1{font:700 34px Georgia;margin:6px 0;color:#650d1c}h2{font:700 19px Georgia;margin:28px 0 8px}.muted{color:#756b65}.grid{display:grid;grid-template-columns:1fr 1fr;gap:30px}.box{background:#fffaf4;padding:14px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#650d1c;color:#fff;text-align:left;padding:9px}td{padding:10px 8px;border-bottom:1px solid #e8ded8}td:last-child,th:last-child{text-align:right}.totals{margin-left:auto;width:260px;margin-top:18px}.total{font:700 20px Georgia;border-top:2px solid #650d1c;padding-top:9px}.footer{position:fixed;bottom:20px;font-size:9px;color:#756b65}@media print{body{margin:22px}}</style></head><body><header><div><p class="muted">Traiteur de cuisine française maison<br>Val-d’Oise & Île-de-France</p><h1>DEVIS</h1><p><strong>${number}</strong> · Émission : ${new Intl.DateTimeFormat("fr-FR").format(Date.now())}<br>Validité : 7 jours</p></div><div style="text-align:right"><strong>TRISTHOM · Bouillon Comptoir</strong><br>90 boulevard de Montmorency<br>95170 Deuil-la-Barre<br>SIRET : 943 286 690 00012<br>contact@bouilloncomptoir.fr</div></header><h2>${escapeHtml(request.eventType || "Prestation")}</h2><p class="muted">${request.eventDate ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(request.eventDate) : "Date à confirmer"} · ${request.guestCount ?? "—"} personnes · ${escapeHtml(request.eventAddress || "Adresse à confirmer")}</p><div class="grid"><div class="box"><strong>Client / lieu de l’événement</strong><br>${escapeHtml(request.contactName)}<br>${escapeHtml(request.contactEmail || "")}<br>${escapeHtml(request.contactPhone || "")}</div><div class="box"><strong>Proposition</strong><br>${escapeHtml(request.message || "Proposition commerciale Bouillon Comptoir.")}</div></div><h2>Récapitulatif chiffré</h2><table><thead><tr><th>Description</th><th>Qté</th><th>PU HT</th><th>TVA</th><th>Total TTC</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><p>Total HT <span style="float:right">${money(totals.excludingVat)}</span></p><p>TVA <span style="float:right">${money(totals.vat)}</span></p><p>Remise <span style="float:right">− ${money(quote.discountCents)}</span></p><p class="total">TOTAL TTC <span style="float:right">${money(totals.includingVat)}</span></p></div><h2>Conditions</h2><p>Devis valable 7 jours. Acompte de 50 % à la confirmation. Prestation sous réserve de disponibilité de production et de logistique. Les accès, horaires et conditions de livraison sont à confirmer avant validation.</p><p class="footer">Bouillon Comptoir · TRISTHOM SAS · 90 boulevard de Montmorency, 95170 Deuil-la-Barre · contact@bouilloncomptoir.fr</p><script>window.onload=()=>window.print()</script></body></html>`,
   );
