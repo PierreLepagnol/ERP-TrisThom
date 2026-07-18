@@ -1,3 +1,4 @@
+// @ts-expect-error Bun supplies this module when running `bun test`.
 import { describe, expect, it } from "bun:test";
 import { canDeleteQuoteVersion, deleteQuoteVersionFromQuote } from "./quote-deletion";
 import type { Quote, QuoteVersion } from "@/lib/local-crm";

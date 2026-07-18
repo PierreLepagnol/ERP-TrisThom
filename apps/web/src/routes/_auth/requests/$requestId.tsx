@@ -23,10 +23,10 @@ import {
   type RequestStatus,
 } from "@/domain/request-status";
 import {
-  getRequestNextAction,
   getRequestQualification,
   type QualificationCriterion,
 } from "@/domain/request-qualification";
+import { latestRequestNote, requestPrimaryAction, requestQuoteSummary, type RequestDetailTab } from "@/domain/request-detail";
 import { legacyQuoteFromVersion, type LocalRequest, type Quote, useLocalCrm } from "@/lib/local-crm";
 
 function FollowUps({
@@ -138,6 +138,7 @@ function RequestDetailPage() {
   const [actionDialog, setActionDialog] = useState<
     "followUp" | "refuse" | "annule" | null
   >(null);
+  const [activeTab, setActiveTab] = useState<RequestDetailTab>("resume");
 
   useEffect(() => {
     if (request) setForm(toForm(request));
@@ -233,7 +234,9 @@ function RequestDetailPage() {
   }
 
   const status = requestStatusConfig[request.status];
-  const nextAction = getRequestNextAction(request);
+  const nextAction = requestPrimaryAction(request);
+  const quoteSummary = requestQuoteSummary(quoteRecord);
+  const latestNote = latestRequestNote(request);
   const progressIndex =
     status.category === "lost"
       ? -1
@@ -241,28 +244,9 @@ function RequestDetailPage() {
         ? activeRequestStatuses.length
         : activeRequestStatuses.indexOf(request.status);
   const eventCards = [
-    ["Type", request.eventType || "À préciser"],
-    [
-      "Date",
-      request.eventDate ? dateFormat.format(request.eventDate) : "À confirmer",
-    ],
-    [
-      "Convives",
-      request.guestCount ? `${request.guestCount} personnes` : "À préciser",
-    ],
-    [
-      "Budget",
-      request.budgetCents
-        ? `${(request.budgetCents / 100).toLocaleString("fr-FR")} € TTC`
-        : "À confirmer",
-    ],
-    ["Lieu", request.eventAddress || "Adresse à confirmer"],
-    [
-      "Horaire",
-      request.eventStartTime && request.eventEndTime
-        ? `${request.eventStartTime} – ${request.eventEndTime}`
-        : "À confirmer",
-    ],
+    ["Besoins particuliers", request.specialNeeds || "Aucun besoin particulier renseigné"],
+    ["Contraintes alimentaires", request.dietaryRequirements || "Aucune contrainte renseignée"],
+    ["Personnel / matériel", request.staffingNeeds || "Aucun besoin renseigné"],
   ];
   return (
     <div className="space-y-5">
@@ -332,9 +316,23 @@ function RequestDetailPage() {
           </p>
         ) : null}
       </section>
+      <section className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryItem label="Date" value={request.eventDate ? dateFormat.format(request.eventDate) : "Date à confirmer"} />
+          <SummaryItem label="Horaires" value={request.eventStartTime && request.eventEndTime ? `${request.eventStartTime} – ${request.eventEndTime}` : "Horaires à confirmer"} />
+          <SummaryItem label="Convives" value={request.guestCount ? `${request.guestCount} personnes` : "Convives à préciser"} />
+          <SummaryItem label="Lieu" value={request.eventAddress || request.venue || "Adresse à confirmer"} />
+          <SummaryItem label="Budget" value={request.budgetCents ? `${(request.budgetCents / 100).toLocaleString("fr-FR")} € TTC` : "Budget à préciser"} />
+          <SummaryItem label="Devis" value={quoteSummary.quoteNumber ? `${quoteSummary.quoteNumber} · V${quoteSummary.versionNumber ?? "—"} · ${quoteSummary.state}` : "Aucun devis"} />
+          <SummaryItem label="Prochaine action" value={nextAction.title} />
+        </div>
+      </section>
+      <nav aria-label="Sections du dossier" className="flex gap-1 overflow-x-auto border-b border-stone-200">
+        {([ ["resume", "Résumé"], ["devis", "Devis"], ["echanges", "Échanges et notes"], ["historique", "Historique"] ] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeTab === tab ? "border-[#8b1629] text-[#8b1629]" : "border-transparent text-stone-500"}`}>{label}</button>)}
+      </nav>
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(17rem,.7fr)]">
         <main className="space-y-5">
-          <QuoteSummaryCard
+          {activeTab === "devis" ? <QuoteSummaryCard
             quote={quoteRecord}
             onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })}
             onCreateVersion={async () => {
@@ -345,15 +343,15 @@ function RequestDetailPage() {
               toast.success("Nouvelle version créée");
               navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } });
             }}
-          />
-          <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+          /> : null}
+          {activeTab === "resume" ? <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-serif text-2xl font-bold">
-                  Informations de l’événement
+                  Besoins et message du client
                 </h2>
                 <p className="text-xs text-stone-500">
-                  Les éléments essentiels du dossier
+                  Les précisions utiles à la prestation
                 </p>
               </div>
               <button
@@ -383,23 +381,14 @@ function RequestDetailPage() {
                 Copier
               </button>
             </div>
-          </section>
-          <QualificationCard
+          </section> : null}
+          {activeTab === "resume" ? <QualificationCard
             criteria={qualification}
             onEdit={() => setEditing(true)}
             onPrepareMessage={() => setMessageOpen(true)}
-          />
-          <RequestInformation
-            editing={editing}
-            form={form}
-            setForm={setForm}
-            onSave={save}
-            onCancel={() => {
-              setForm(toForm(request));
-              setEditing(false);
-            }}
-          />
-          <History request={request} />
+          /> : null}
+          {activeTab === "echanges" ? <Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} /> : null}
+          {activeTab === "historique" ? <History request={request} /> : null}
         </main>
         <aside className="space-y-5">
           <section className="rounded-xl bg-[#650d1c] p-5 text-white shadow-sm">
@@ -442,17 +431,15 @@ function RequestDetailPage() {
             <dl className="mt-4 space-y-2 text-sm">
               <div className="flex justify-between gap-3">
                 <dt className="text-stone-500">E-mail</dt>
-                <dd className="break-all font-semibold">
-                  {request.contactEmail || "—"}
-                </dd>
+                <dd className="flex min-w-0 items-center gap-2 break-all font-semibold">{request.contactEmail || "—"}{request.contactEmail ? <button type="button" onClick={() => void copyQuickContact(request.contactEmail!, "E-mail copié")} className="shrink-0 text-xs font-bold text-[#8b1629]">Copier</button> : null}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-stone-500">Téléphone</dt>
-                <dd className="font-semibold">{request.contactPhone || "—"}</dd>
+                <dd className="flex items-center gap-2 font-semibold">{request.contactPhone || "—"}{request.contactPhone ? <button type="button" onClick={() => void copyQuickContact(request.contactPhone!, "Téléphone copié")} className="text-xs font-bold text-[#8b1629]">Copier</button> : null}</dd>
               </div>
             </dl>
           </section>
-          {missingCriteria.length > 0 && (
+          {activeTab === "resume" && missingCriteria.length > 0 && (
             <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
               <h2 className="font-serif text-xl font-bold">
                 Informations manquantes
@@ -475,20 +462,13 @@ function RequestDetailPage() {
               </button>
             </section>
           )}
-          <Notes
-            request={request}
-            note={note}
-            setNote={setNote}
-            onAdd={async () => {
-              if (!note.trim()) return;
-              await addNote(request._id, note.trim());
-              setNote("");
-              toast.success("Note ajoutée");
-            }}
-          />
+          <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3"><h2 className="font-serif text-xl font-bold">Dernière note</h2><button type="button" onClick={() => setActiveTab("echanges")} className="text-xs font-bold text-[#8b1629]">Voir toutes les notes</button></div>
+            {latestNote ? <div className="mt-3 rounded-lg bg-stone-50 p-3"><p className="whitespace-pre-wrap text-sm">{latestNote.content}</p><time className="mt-2 block text-xs text-stone-400">{timeFormat.format(latestNote.createdAt)}</time></div> : <p className="mt-3 text-sm text-stone-500">Aucune note interne.</p>}
+          </section>
         </aside>
       </div>
-      {request.followUps.length > 0 ? (
+      {activeTab === "echanges" && request.followUps.length > 0 ? (
         <FollowUps
           request={request}
           onComplete={async (followUpId) => {
@@ -497,6 +477,15 @@ function RequestDetailPage() {
           }}
         />
       ) : null}
+      {editing ? <RequestInformation
+        form={form}
+        setForm={setForm}
+        onSave={save}
+        onCancel={() => {
+          setForm(toForm(request));
+          setEditing(false);
+        }}
+      /> : null}
       {messageOpen && (
         <MessageModal
           initial={draftMessage}
@@ -506,6 +495,10 @@ function RequestDetailPage() {
       {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande refusée" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
     </div>
   );
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 rounded-lg bg-[#fffaf4] px-3 py-2"><p className="text-[10px] font-bold tracking-wide text-stone-400 uppercase">{label}</p><p className="mt-1 truncate font-semibold" title={value}>{value}</p></div>;
 }
 
 function QualificationCard({
@@ -569,39 +562,34 @@ function QuoteSummaryCard({
 }
 
 function RequestInformation({
-  editing,
   form,
   setForm,
   onSave,
   onCancel,
 }: {
-  editing: boolean;
   form: Record<string, string>;
   setForm: (next: Record<string, string>) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }) {
-  const [localEditing, setLocalEditing] = useState(false);
-  const isEditing = editing || localEditing;
   const field = (name: string, label: string, type = "text") => (
     <label className="grid gap-1 text-sm font-semibold">
       <span>{label}</span>
       <input
-        disabled={!isEditing}
         type={type}
         value={form[name] ?? ""}
         onChange={(e) => setForm({ ...form, [name]: e.target.value })}
-        className="input disabled:border-transparent disabled:bg-stone-50 disabled:text-stone-700"
+        className="input"
       />
     </label>
   );
   return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4">
     <form
       onSubmit={(event) => {
-        setLocalEditing(false);
         onSave(event);
       }}
-      className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm"
+      className="mx-auto my-6 w-full max-w-3xl rounded-xl border border-stone-200 bg-white p-6 shadow-xl"
     >
       <div className="flex items-center justify-between">
         <div>
@@ -612,32 +600,7 @@ function RequestInformation({
             Coordonnées, événement et besoins
           </p>
         </div>
-        {isEditing ? (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setLocalEditing(false);
-                onCancel();
-              }}
-              className="px-3 py-2 text-sm font-bold"
-            >
-              Annuler
-            </button>
-            <button className="inline-flex items-center gap-1 rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white">
-              <Save className="size-4" />
-              Sauvegarder
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setLocalEditing(true)}
-            className="rounded-md border border-[#d9b8bf] bg-white px-3 py-2 text-sm font-bold text-[#8b1629]"
-          >
-            Modifier
-          </button>
-        )}
+        <div className="flex gap-2"><button type="button" onClick={onCancel} className="px-3 py-2 text-sm font-bold">Annuler</button><button className="inline-flex items-center gap-1 rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white"><Save className="size-4" />Enregistrer les modifications</button></div>
       </div>
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         {field("organizationName", "Client ou entreprise")}
@@ -667,16 +630,16 @@ function RequestInformation({
                 }
               </span>
               <textarea
-                disabled={!isEditing}
                 value={form[name] ?? ""}
                 onChange={(e) => setForm({ ...form, [name]: e.target.value })}
-                className="input min-h-20 disabled:border-transparent disabled:bg-stone-50 disabled:text-stone-700"
+                className="input min-h-20"
               />
             </label>
           ),
         )}
       </div>
     </form>
+    </div>
   );
 }
 function Notes({
@@ -811,6 +774,10 @@ function EmptyRequest() {
       </Link>
     </div>
   );
+}
+async function copyQuickContact(value: string, message: string) {
+  await navigator.clipboard.writeText(value);
+  toast.success(message);
 }
 function toForm(request: LocalRequest) {
   return {

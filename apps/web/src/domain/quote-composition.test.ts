@@ -1,3 +1,4 @@
+// @ts-expect-error Bun supplies this module when running `bun test`.
 import { describe, expect, it } from "bun:test";
 import {
   applyFreeCompositionText,
@@ -11,7 +12,7 @@ import {
   removeCompositionItem,
 } from "./quote-composition";
 
-const line = { id: "line", label: "Buffet Brasserie", quantity: 20, unitPriceCents: 2200, vatRate: 10, origin: "catalog" as const, category: "Formules buffet" };
+const line: import("./quote-line").QuoteLineSnapshot = { id: "line", label: "Buffet Brasserie", quantity: 20, unitPriceCents: 2200, vatRate: 10, origin: "catalog", category: "Formules buffet" };
 
 describe("quote composition", () => {
   it("identifies formula lines and excludes logistics", () => {
