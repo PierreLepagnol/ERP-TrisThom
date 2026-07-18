@@ -13,6 +13,7 @@ import {
   getAllowedRequestStatuses,
   type RequestStatus,
 } from "@/domain/request-status";
+import { foodCostCentsByCatalogItemId } from "@/domain/catalog-food-costs";
 
 export type { RequestStatus } from "@/domain/request-status";
 export type RequestSource =
@@ -118,6 +119,7 @@ export type CatalogItem = {
   details?: string[];
   unit: string;
   unitPriceCents: number;
+  foodCostCents?: number;
   vatRate: number;
   category: string;
   active: boolean;
@@ -875,6 +877,7 @@ function enrichCatalogItem(
   const isPiece = item.unit === "pièce";
   return {
     ...item,
+    foodCostCents: item.foodCostCents ?? foodCostCentsByCatalogItemId[item.id],
     seasonality: item.seasonality?.length ? item.seasonality : seasonal,
     dietary: item.dietary?.length
       ? item.dietary
