@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
-import { type CatalogItem, useLocalCrm } from "@/lib/local-crm";
+import { useConvexCrm } from "@/lib/convex-crm";
+import type { CatalogItem } from "@/lib/local-crm";
 
 export const Route = createFileRoute("/_auth/catalog")({ component: CatalogPage });
 
@@ -10,7 +11,7 @@ const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR"
 const list = (value?: string[]) => value?.join(", ") ?? "";
 
 function CatalogPage() {
-  const { catalog, saveCatalogItem, deleteCatalogItem } = useLocalCrm();
+  const { catalog, saveCatalogItem, deleteCatalogItem } = useConvexCrm();
   const [editing, setEditing] = useState<CatalogItem | null>(null);
   const [creating, setCreating] = useState(false);
 

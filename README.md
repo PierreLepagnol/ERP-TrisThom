@@ -85,3 +85,14 @@ ERPTrisThom/
 - `bun run dev:web`: Start only the web application
 - `bun run dev:setup`: Setup and configure your Convex project
 - `bun run check-types`: Check TypeScript types across all apps
+
+## 5. Configure production separately
+
+When deploying to production, generate a different secret:
+
+openssl rand -base64 32 | bunx convex env --prod set BETTER_AUTH_SECRET
+bunx convex env --prod set SITE_URL https://your-production-domain.example
+bunx convex env --prod list --names-only
+
+Convex environment variables are deployment-specific, so setting the dev value does not
+configure production. Convex CLI reference (https://docs.convex.dev/cli/reference/env)

@@ -5,8 +5,9 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { getAllowedRequestStatuses, pipelineRequestStatuses, requestStatusConfig, requestStatusValues, type RequestStatus } from "@/domain/request-status";
-import { type LocalRequest, useLocalCrm } from "@/lib/local-crm";
-import { filterOperationalRequests, matchesRequestSearch, needsActionToday, sortRequests } from "@/domain/request-list";
+import { filterOperationalRequests, matchesRequestSearch, sortRequests } from "@/domain/request-list";
+import { useConvexCrm } from "@/lib/convex-crm";
+import type { LocalRequest } from "@/lib/local-crm";
 
 const sources = ["manuel", "telephone", "1001traiteur"] as const;
 const statuses = requestStatusValues;
@@ -35,7 +36,7 @@ export const Route = createFileRoute("/_auth/requests")({
 function RequestsPage() {
   const searchParams = Route.useSearch();
   const navigate = useNavigate();
-  const { requests, archivedRequests, quotes, createRequest, updateStatus, markHandled, scheduleFollowUp, startQuotePreparation } = useLocalCrm();
+  const { requests, archivedRequests, quotes, createRequest, updateStatus, markHandled, scheduleFollowUp, startQuotePreparation } = useConvexCrm();
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
@@ -113,7 +114,6 @@ function RequestsPage() {
     return matchesStatus && matchesSearch;
   }), quickFilter === "archivees" ? "tous" : quickFilter), [displayedRequests, quickFilter, quotes, search, statusFilter]);
   const sortedRequests = useMemo(() => sortRequests(filteredRequests, sort), [filteredRequests, sort]);
-  const actionCount = requests?.filter((request) => needsActionToday(request)).length ?? 0;
   const newCount = requests?.filter((request) => request.status === "nouveau").length ?? 0;
   const qualifyingCount = requests?.filter((request) => request.status === "a_qualifier").length ?? 0;
   const quoteAndFollowUpCount = requests?.filter((request) => ["devis_a_preparer", "devis_envoye", "relance"].includes(request.status)).length ?? 0;

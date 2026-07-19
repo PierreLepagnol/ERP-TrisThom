@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Building2, Mail, Phone, Search, Users } from "lucide-react";
 import { useState } from "react";
 
-import { useLocalCrm } from "@/lib/local-crm";
+import { useConvexCrm } from "@/lib/convex-crm";
 
 export const Route = createFileRoute("/_auth/clients")({ component: ClientsPage });
 
 const formatDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 
 function ClientsPage() {
-  const { clients } = useLocalCrm();
+  const { clients } = useConvexCrm();
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
   const filteredClients = clients?.filter((client) =>

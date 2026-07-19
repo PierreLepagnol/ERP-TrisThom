@@ -13,6 +13,7 @@ import type * as crm from "../crm.js";
 import type * as directus from "../directus.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
+import type * as magicLinkEmail from "../magicLinkEmail.js";
 import type * as privateData from "../privateData.js";
 
 import type {
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   directus: typeof directus;
   healthCheck: typeof healthCheck;
   http: typeof http;
+  magicLinkEmail: typeof magicLinkEmail;
   privateData: typeof privateData;
 }>;
 

@@ -2,10 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { CalendarDays, ClipboardList, LayoutDashboard, Package, Plus, RotateCcw, Users } from "lucide-react";
 import { toast } from "sonner";
 
-import { useLocalCrm } from "@/lib/local-crm";
+import { useConvexCrm } from "@/lib/convex-crm";
 
 export default function Header() {
-  const { resetDemoData } = useLocalCrm();
+  const { resetDemoData } = useConvexCrm();
   const links = [
     { to: "/dashboard", label: "Vue d'ensemble", icon: LayoutDashboard },
     { to: "/requests", label: "Demandes", icon: ClipboardList },
@@ -16,8 +16,16 @@ export default function Header() {
 
   async function resetDemo() {
     if (!window.confirm("Réinitialiser les demandes, devis, relances et catalogue avec les données de démonstration ?")) return;
-    await resetDemoData();
-    toast.success("Les données de démonstration ont été réinitialisées.");
+    try {
+      await resetDemoData();
+      toast.success("Les données de démonstration ont été réinitialisées.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Impossible de réinitialiser les données de démonstration.",
+      );
+    }
   }
 
   return (
@@ -54,7 +62,7 @@ export default function Header() {
             <span className="hidden sm:inline">Nouvelle demande</span>
           </Link>
           <button type="button" onClick={() => void resetDemo()} className="hidden items-center gap-1.5 rounded-full border border-white/20 px-2.5 py-1 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white lg:inline-flex" title="Réinitialiser les données de démonstration"><RotateCcw className="size-3" />Réinitialiser la démo</button>
-          <span className="hidden rounded-full border border-white/20 px-2.5 py-1 text-xs font-semibold text-white/70 xl:inline">Mode local</span>
+          <span className="hidden rounded-full border border-white/20 px-2.5 py-1 text-xs font-semibold text-white/70 xl:inline">Convex connecté</span>
         </div>
       </div>
     </header>

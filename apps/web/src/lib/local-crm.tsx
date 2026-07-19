@@ -11,6 +11,7 @@ import { getMissingQualificationInformation } from "@/domain/request-qualificati
 import {
   activeRequestStatuses,
   getAllowedRequestStatuses,
+  requestStatusConfig,
   type RequestStatus,
 } from "@/domain/request-status";
 import { foodCostCentsByCatalogItemId } from "@/domain/catalog-food-costs";
@@ -181,7 +182,7 @@ export type LocalRequest = {
   updatedAt: number;
 };
 
-type CreateRequestInput = Omit<
+export type CreateRequestInput = Omit<
   LocalRequest,
   | "_id"
   | "status"
@@ -192,10 +193,10 @@ type CreateRequestInput = Omit<
   | "createdAt"
   | "updatedAt"
 >;
-type EditableRequest = Partial<
+export type EditableRequest = Partial<
   Omit<LocalRequest, "_id" | "notes" | "history" | "createdAt">
 >;
-type LocalCrm = {
+export type LocalCrm = {
   requests: LocalRequest[];
   archivedRequests: LocalRequest[];
   quotes: Quote[];
@@ -637,7 +638,7 @@ const DEFAULT_CATALOG: CatalogItem[] = (
   });
 });
 
-const cloneDefaultCatalog = () =>
+export const cloneDefaultCatalog = () =>
   DEFAULT_CATALOG.map((item) => ({
     ...item,
     details: item.details ? [...item.details] : undefined,

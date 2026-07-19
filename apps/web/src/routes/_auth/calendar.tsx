@@ -3,7 +3,8 @@ import { CalendarDays, ChevronLeft, ChevronRight, MapPin, Users } from "lucide-r
 import { useMemo, useState } from "react";
 
 import { requestStatusConfig } from "@/domain/request-status";
-import { type LocalRequest, useLocalCrm } from "@/lib/local-crm";
+import { useConvexCrm } from "@/lib/convex-crm";
+import type { LocalRequest } from "@/lib/local-crm";
 
 export const Route = createFileRoute("/_auth/calendar")({ component: CalendarPage });
 
@@ -12,7 +13,7 @@ const monthFormat = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "num
 const weekDays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 function CalendarPage() {
-  const { requests } = useLocalCrm();
+  const { requests } = useConvexCrm();
   const [monthOffset, setMonthOffset] = useState(0);
   const selectedMonth = useMemo(() => {
     const date = new Date();

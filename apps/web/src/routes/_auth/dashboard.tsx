@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, CircleAlert, Euro, FileText, Trend
 import { useState } from "react";
 
 import { requestStatusConfig } from "@/domain/request-status";
-import { useLocalCrm } from "@/lib/local-crm";
+import { useConvexCrm } from "@/lib/convex-crm";
 
 const euro = new Intl.NumberFormat("fr-FR", {
   style: "currency",
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/_auth/dashboard")({
 });
 
 function DashboardContent() {
-  const { dashboard, completeFollowUp, scheduleFollowUp } = useLocalCrm();
+  const { dashboard, completeFollowUp, scheduleFollowUp } = useConvexCrm();
   const [monthOffset, setMonthOffset] = useState(0);
   const [calendarFilter, setCalendarFilter] = useState<"all" | "requests" | "sent" | "accepted">("all");
 
@@ -127,7 +127,7 @@ function DashboardContent() {
   );
 }
 
-function MonthCalendar({ requests, monthOffset, filter, onFilter, onToday, onPrevious, onNext }: { requests: ReturnType<typeof useLocalCrm>["dashboard"]["monthRequests"]; monthOffset: number; filter: "all" | "requests" | "sent" | "accepted"; onFilter: (filter: "all" | "requests" | "sent" | "accepted") => void; onToday: () => void; onPrevious: () => void; onNext: () => void }) {
+function MonthCalendar({ requests, monthOffset, filter, onFilter, onToday, onPrevious, onNext }: { requests: ReturnType<typeof useConvexCrm>["dashboard"]["monthRequests"]; monthOffset: number; filter: "all" | "requests" | "sent" | "accepted"; onFilter: (filter: "all" | "requests" | "sent" | "accepted") => void; onToday: () => void; onPrevious: () => void; onNext: () => void }) {
   const month = new Date(); month.setDate(1); month.setMonth(month.getMonth() + monthOffset); const year = month.getFullYear(), monthIndex = month.getMonth();
   const firstDay = (month.getDay() + 6) % 7, daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const cells = Array.from({ length: Math.ceil((firstDay + daysInMonth) / 7) * 7 }, (_, index) => index - firstDay + 1);

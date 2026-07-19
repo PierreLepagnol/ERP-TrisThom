@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { QuoteDocument } from "@/components/quotes/quote-document";
 import { selectQuoteVersion } from "@/domain/quote-draft";
-import { LocalCrmProvider, useLocalCrm } from "@/lib/local-crm";
+import { ConvexCrmProvider, useConvexCrm } from "@/lib/convex-crm";
 
 export const Route = createFileRoute("/print/requests/$requestId/quote")({
   validateSearch: z.object({ version: z.string().optional() }),
@@ -12,16 +12,16 @@ export const Route = createFileRoute("/print/requests/$requestId/quote")({
 
 function PrintQuoteRoute() {
   return (
-    <LocalCrmProvider>
+    <ConvexCrmProvider>
       <PrintQuoteDocument />
-    </LocalCrmProvider>
+    </ConvexCrmProvider>
   );
 }
 
 function PrintQuoteDocument() {
   const { requestId } = Route.useParams();
   const { version: versionId } = Route.useSearch();
-  const { requests, archivedRequests, quotes } = useLocalCrm();
+  const { requests, archivedRequests, quotes } = useConvexCrm();
   const request = [...requests, ...archivedRequests].find(
     (item) => item._id === requestId,
   );

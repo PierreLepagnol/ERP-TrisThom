@@ -28,6 +28,12 @@ type Env = {
   readonly BETTER_AUTH_SECRET: string;
   readonly DIRECTUS_WEBHOOK_SECRET: string | undefined;
   readonly SITE_URL: string | undefined;
+  readonly SMTP_FROM: string;
+  readonly SMTP_HOST: string;
+  readonly SMTP_PASSWORD: string;
+  readonly SMTP_PORT: string;
+  readonly SMTP_SECURE: string;
+  readonly SMTP_USER: string;
 };
 
 /**

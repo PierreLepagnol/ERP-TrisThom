@@ -1,8 +1,10 @@
 import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex } from "@convex-dev/better-auth/plugins";
+import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { betterAuth } from "better-auth/minimal";
+import { magicLink } from "better-auth/plugins/magic-link";
 
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { env, query } from "./_generated/server";
 import authConfig from "./auth.config";
@@ -16,11 +18,17 @@ function createAuth(ctx: GenericCtx<DataModel>) {
     baseURL: siteUrl,
     trustedOrigins: [siteUrl],
     database: authComponent.adapter(ctx),
-    emailAndPassword: {
-      enabled: true,
-      requireEmailVerification: false,
-    },
     plugins: [
+      magicLink({
+        expiresIn: 10 * 60,
+        storeToken: "hashed",
+        sendMagicLink: async ({ email, url }) => {
+          await requireActionCtx(ctx).runAction(
+            internal.magicLinkEmail.sendMagicLinkEmail,
+            { email, url },
+          );
+        },
+      }),
       convex({
         authConfig,
         jwksRotateOnTokenGenerationError: true,

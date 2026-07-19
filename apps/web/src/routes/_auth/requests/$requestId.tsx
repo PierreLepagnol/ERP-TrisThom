@@ -20,6 +20,7 @@ import {
   activeRequestStatuses,
   getAllowedRequestStatuses,
   requestStatusConfig,
+  requestStatusValues,
   type RequestStatus,
 } from "@/domain/request-status";
 import {
@@ -27,7 +28,8 @@ import {
   type QualificationCriterion,
 } from "@/domain/request-qualification";
 import { latestRequestNote, requestPrimaryAction, requestQuoteSummary, type RequestDetailTab } from "@/domain/request-detail";
-import { legacyQuoteFromVersion, type LocalRequest, type Quote, useLocalCrm } from "@/lib/local-crm";
+import { useConvexCrm } from "@/lib/convex-crm";
+import { legacyQuoteFromVersion, type LocalRequest, type Quote } from "@/lib/local-crm";
 
 function FollowUps({
   request,
@@ -127,7 +129,7 @@ function RequestDetailPage() {
     restoreRequest,
     completeFollowUp,
     createQuoteVersion,
-  } = useLocalCrm();
+  } = useConvexCrm();
   const request = [...requests, ...archivedRequests].find(
     (item) => item._id === requestId,
   );

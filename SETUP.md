@@ -65,6 +65,22 @@ VITE_CONVEX_SITE_URL=<your convex site url>
 
 ## 4. Run everything
 
+Before starting the app, configure the SMTP account used to send sign-in links. These values
+belong to the Convex deployment, not `apps/web/.env`:
+
+```bash
+bunx convex env set SMTP_HOST smtp.example.com
+bunx convex env set SMTP_PORT 465
+bunx convex env set SMTP_SECURE true
+bunx convex env set SMTP_USER contact@example.com
+bunx convex env set SMTP_PASSWORD
+bunx convex env set SMTP_FROM "Bouillon Comptoir <contact@example.com>"
+```
+
+The password command prompts for the secret so it does not end up in your shell history.
+Use port `465` with `SMTP_SECURE=true`, or port `587` with `SMTP_SECURE=false` for STARTTLS.
+Repeat these commands with `--prod` when configuring the production deployment.
+
 ```bash
 bun run dev
 ```

@@ -1,4 +1,5 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useConvexCrm } from "@/lib/convex-crm";
 import {
   ChevronLeft,
   CircleAlert,
@@ -21,7 +22,6 @@ import {
   type LocalRequest,
   type CatalogItem,
   type QuoteTemplate,
-  useLocalCrm,
 } from "@/lib/local-crm";
 import { QuoteDocument } from "@/components/quotes/quote-document";
 import { recommendQuotes } from "@/domain/quote-recommendation";
@@ -75,7 +75,7 @@ function QuotePreparationPage() {
     createQuoteVersion,
     restoreQuoteVersion,
     deleteQuoteVersion,
-  } = useLocalCrm();
+  } = useConvexCrm();
   const request = requests.find((item) => item._id === requestId);
   const storedQuote = quotes.find((item) => item.requestId === requestId);
   const [quote, setQuote] = useState<LocalQuote>({
