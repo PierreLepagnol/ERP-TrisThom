@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getAllowedRequestStatuses, pipelineRequestStatuses, requestStatusConfig, requestStatusValues, type RequestStatus } from "@/domain/request-status";
 import { type LocalRequest, useLocalCrm } from "@/lib/local-crm";
+import { filterOperationalRequests, matchesRequestSearch, needsActionToday, sortRequests } from "@/domain/request-list";
 
 const sources = ["manuel", "telephone", "1001traiteur"] as const;
 const statuses = requestStatusValues;
@@ -22,7 +23,7 @@ const sourceLabels: Record<string, string> = {
 };
 
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
-type QuickFilter = "tous" | "a_traiter" | "devis_relances" | "archivees";
+type QuickFilter = "tous" | "a_traiter" | "devis_relances" | "archivees" | "nouvelles" | "qualifier" | "devis_preparer" | "acceptees";
 
 export const Route = createFileRoute("/_auth/requests")({
   validateSearch: z.object({
@@ -34,7 +35,7 @@ export const Route = createFileRoute("/_auth/requests")({
 function RequestsPage() {
   const searchParams = Route.useSearch();
   const navigate = useNavigate();
-  const { requests, archivedRequests, createRequest, updateStatus } = useLocalCrm();
+  const { requests, archivedRequests, quotes, createRequest, updateStatus, markHandled, scheduleFollowUp, startQuotePreparation } = useLocalCrm();
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
@@ -42,6 +43,8 @@ function RequestsPage() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("tous");
   const [view, setView] = useState<"list" | "board">("list");
   const [draggedRequestId, setDraggedRequestId] = useState<string | null>(null);
+  const [sort, setSort] = useState<"priority" | "nextAction" | "eventDate" | "receivedAt" | "amount">("priority");
+  void setSort;
   const location = useLocation();
 
   if (location.pathname !== "/requests") return <Outlet />;
@@ -104,20 +107,13 @@ function RequestsPage() {
   }
 
   const displayedRequests = quickFilter === "archivees" ? archivedRequests : requests;
-  const filteredRequests = useMemo(() => displayedRequests.filter((request) => {
+  const filteredRequests = useMemo(() => filterOperationalRequests(displayedRequests.filter((request) => {
     const matchesStatus = statusFilter === "tous" || request.status === statusFilter;
-    const query = search.trim().toLowerCase();
-    const matchesSearch = !query || [request.contactName, request.contactEmail, request.eventType]
-      .some((value) => value?.toLowerCase().includes(query));
-    const needsAction = request.missingInformation.length > 0 || request.status === "relance" || request.status === "devis_a_preparer";
-    const matchesQuickFilter = quickFilter === "tous" || quickFilter === "archivees" || (quickFilter === "a_traiter" && needsAction) || (quickFilter === "devis_relances" && ["devis_a_preparer", "devis_envoye", "relance"].includes(request.status));
-    return matchesStatus && matchesSearch && matchesQuickFilter;
-  }).sort((a, b) => {
-    const aPriority = Number(a.status === "relance") * 2 + Number(a.missingInformation.length > 0);
-    const bPriority = Number(b.status === "relance") * 2 + Number(b.missingInformation.length > 0);
-    return bPriority - aPriority || b.updatedAt - a.updatedAt;
-  }), [displayedRequests, quickFilter, search, statusFilter]);
-  const actionCount = requests?.filter((request) => request.missingInformation.length > 0 || request.status === "relance" || request.status === "devis_a_preparer").length ?? 0;
+    const matchesSearch = matchesRequestSearch(request, search, quotes.find((quote) => quote.requestId === request._id));
+    return matchesStatus && matchesSearch;
+  }), quickFilter === "archivees" ? "tous" : quickFilter), [displayedRequests, quickFilter, quotes, search, statusFilter]);
+  const sortedRequests = useMemo(() => sortRequests(filteredRequests, sort), [filteredRequests, sort]);
+  const actionCount = requests?.filter((request) => needsActionToday(request)).length ?? 0;
   const newCount = requests?.filter((request) => request.status === "nouveau").length ?? 0;
   const qualifyingCount = requests?.filter((request) => request.status === "a_qualifier").length ?? 0;
   const quoteAndFollowUpCount = requests?.filter((request) => ["devis_a_preparer", "devis_envoye", "relance"].includes(request.status)).length ?? 0;
@@ -159,7 +155,7 @@ function RequestsPage() {
               {statuses.map((status) => <option key={status} value={status}>{requestStatusConfig[status].label}</option>)}
             </select>
           </div></div>
-          <div className="mt-4 flex flex-wrap items-center gap-2"><Filter className="size-4 text-stone-400" /><QuickFilterButton active={quickFilter === "a_traiter"} onClick={() => { setQuickFilter(quickFilter === "a_traiter" ? "tous" : "a_traiter"); setStatusFilter("tous"); }}>À traiter ({actionCount})</QuickFilterButton>{pipelineRequestStatuses.map((status) => <QuickFilterButton key={status} active={statusFilter === status && quickFilter === "tous"} onClick={() => { setQuickFilter("tous"); setStatusFilter(statusFilter === status ? "tous" : status); }}>{requestStatusConfig[status].label}</QuickFilterButton>)}<QuickFilterButton active={quickFilter === "archivees"} onClick={() => { setQuickFilter(quickFilter === "archivees" ? "tous" : "archivees"); setStatusFilter("tous"); }}>Archivées ({archivedRequests.length})</QuickFilterButton></div>
+          <div className="mt-4 flex flex-wrap items-center gap-2"><Filter className="size-4 text-stone-400" />{([ ["a_traiter", "À traiter aujourd’hui"], ["nouvelles", "Nouvelles"], ["qualifier", "À qualifier"], ["devis_preparer", "Devis à préparer"], ["devis_relances", "Devis envoyés à relancer"], ["acceptees", "Prestations acceptées"], ["tous", "Tous les dossiers"] ] as const).map(([filter, label]) => <QuickFilterButton key={filter} active={quickFilter === filter} onClick={() => { setQuickFilter(filter); setStatusFilter("tous"); }}>{label} ({filterOperationalRequests(requests, filter).length})</QuickFilterButton>)}</div>
         </div>
         {!displayedRequests ? (
           <p className="px-6 py-10 text-sm text-stone-500">Chargement des demandes…</p>
@@ -170,7 +166,7 @@ function RequestsPage() {
         ) : (
           view === "board" && quickFilter !== "archivees" ? <PipelineBoard requests={filteredRequests} onMove={moveRequest} draggedRequestId={draggedRequestId} setDraggedRequestId={setDraggedRequestId} /> : <div className="divide-y divide-stone-100">
             <div className="hidden grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] gap-5 px-6 py-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400 xl:grid"><span>Client</span><span>Événement</span><span>Qualification</span><span>Suivi</span><span>Action</span></div>
-            {filteredRequests?.map((request) => <RequestRow key={request._id} request={request} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} onStatusChange={handleStatusChange} />)}
+            {sortedRequests.map((request) => <RequestRow key={request._id} request={request} quote={quotes.find((quote) => quote.requestId === request._id)} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} onStatusChange={handleStatusChange} onPrepareQuote={() => void startQuotePreparation(request._id).then(() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } }))} onMarkHandled={() => void markHandled(request._id)} onPostpone={(days) => void scheduleFollowUp(request._id, Date.now() + days * 86400000)} />)}
           </div>
         )}
       </section>
@@ -186,7 +182,8 @@ function QuickFilterButton({ active, onClick, children }: { active: boolean; onC
   return <button type="button" onClick={onClick} className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${active ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{children}</button>;
 }
 
-function RequestRow({ request, onOpen, onStatusChange }: { request: LocalRequest; onOpen: () => void; onStatusChange: (request: LocalRequest, status: Status) => Promise<void> }) {
+function RequestRow({ request, onOpen, onStatusChange, quote, onPrepareQuote, onMarkHandled, onPostpone }: { request: LocalRequest; quote?: { quoteNumber: string }; onOpen: () => void; onStatusChange: (request: LocalRequest, status: Status) => Promise<void>; onPrepareQuote: () => void; onMarkHandled: () => void; onPostpone: (days: number) => void }) {
+  void quote; void onPrepareQuote; void onMarkHandled; void onPostpone;
   const missingCount = request.missingInformation.length;
   const followUp = request.followUps.find((item) => !item.completedAt);
   const budget = request.budgetCents ? `Budget ${(request.budgetCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}` : request.budgetPerPersonCents ? `${(request.budgetPerPersonCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })} / pers.` : "Budget à préciser";

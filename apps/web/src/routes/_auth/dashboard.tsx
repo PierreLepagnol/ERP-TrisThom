@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, CalendarDays, Check, CircleAlert, Euro, FileText, TrendingUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, CircleAlert, Euro, FileText, TrendingUp } from "lucide-react";
 import { useState } from "react";
 
 import { requestStatusConfig } from "@/domain/request-status";
@@ -22,8 +22,9 @@ export const Route = createFileRoute("/_auth/dashboard")({
 });
 
 function DashboardContent() {
-  const { dashboard, completeFollowUp } = useLocalCrm();
+  const { dashboard, completeFollowUp, scheduleFollowUp } = useLocalCrm();
   const [monthOffset, setMonthOffset] = useState(0);
+  const [calendarFilter, setCalendarFilter] = useState<"all" | "requests" | "sent" | "accepted">("all");
 
   return (
     <div className="space-y-7">
@@ -73,7 +74,7 @@ function DashboardContent() {
                     <p className="font-semibold hover:text-[#8b1629]">{task.title}</p>
                     <p className="text-sm text-stone-500">Relance planifiée</p>
                   </Link>
-                  <div className="flex items-center gap-3"><time className="text-right text-sm font-bold text-[#8b1629]" dateTime={new Date(task.dueAt).toISOString()}>{date.format(task.dueAt)}</time><button onClick={() => completeFollowUp(task.requestId, task._id)} aria-label={`Terminer ${task.title}`} className="rounded-full bg-emerald-50 p-2 text-emerald-700"><Check className="size-4" /></button></div>
+                  <div className="flex flex-wrap items-center justify-end gap-2"><time className="text-right text-sm font-bold text-[#8b1629]" dateTime={new Date(task.dueAt).toISOString()}>{date.format(task.dueAt)}</time><button onClick={() => completeFollowUp(task.requestId, task._id)} className="rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">Traitée</button><button onClick={() => scheduleFollowUp(task.requestId, Date.now() + 86400000)} className="rounded border border-stone-200 px-2 py-1 text-xs font-bold">Demain</button><button onClick={() => scheduleFollowUp(task.requestId, Date.now() + 3 * 86400000)} className="rounded border border-stone-200 px-2 py-1 text-xs font-bold">J+3</button></div>
                 </div>
               ))
             )}
@@ -106,7 +107,7 @@ function DashboardContent() {
         </div>
       </section>
 
-      <MonthCalendar requests={dashboard.monthRequests} monthOffset={monthOffset} onPrevious={() => setMonthOffset((value) => value - 1)} onNext={() => setMonthOffset((value) => value + 1)} />
+      <MonthCalendar requests={dashboard.monthRequests} monthOffset={monthOffset} filter={calendarFilter} onFilter={setCalendarFilter} onToday={() => setMonthOffset(0)} onPrevious={() => setMonthOffset((value) => value - 1)} onNext={() => setMonthOffset((value) => value + 1)} />
 
       <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="font-serif text-2xl font-bold">Pipeline actif</h2>
@@ -126,12 +127,13 @@ function DashboardContent() {
   );
 }
 
-function MonthCalendar({ requests, monthOffset, onPrevious, onNext }: { requests: ReturnType<typeof useLocalCrm>["dashboard"]["monthRequests"]; monthOffset: number; onPrevious: () => void; onNext: () => void }) {
+function MonthCalendar({ requests, monthOffset, filter, onFilter, onToday, onPrevious, onNext }: { requests: ReturnType<typeof useLocalCrm>["dashboard"]["monthRequests"]; monthOffset: number; filter: "all" | "requests" | "sent" | "accepted"; onFilter: (filter: "all" | "requests" | "sent" | "accepted") => void; onToday: () => void; onPrevious: () => void; onNext: () => void }) {
   const month = new Date(); month.setDate(1); month.setMonth(month.getMonth() + monthOffset); const year = month.getFullYear(), monthIndex = month.getMonth();
   const firstDay = (month.getDay() + 6) % 7, daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const cells = Array.from({ length: Math.ceil((firstDay + daysInMonth) / 7) * 7 }, (_, index) => index - firstDay + 1);
   const label = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(month);
-  return <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="font-serif text-2xl font-bold">Vision du mois</h2><p className="capitalize text-sm text-stone-500">{label}</p></div><div className="flex gap-2"><button onClick={onPrevious} aria-label="Mois précédent" className="rounded-md border border-stone-200 p-2"><ArrowLeft className="size-4" /></button><button onClick={onNext} aria-label="Mois suivant" className="rounded-md border border-stone-200 p-2"><ArrowRight className="size-4" /></button></div></div><div className="mt-5 grid grid-cols-7 text-center text-xs font-bold text-stone-400">{["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((day) => <div key={day} className="py-2">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-t border-stone-100">{cells.map((day, index) => { const dayRequests = day > 0 && day <= daysInMonth ? requests.filter((request) => { const event = request.eventDate ? new Date(request.eventDate) : null; return event?.getFullYear() === year && event.getMonth() === monthIndex && event.getDate() === day; }) : []; return <div key={index} className="min-h-24 border-b border-r border-stone-100 p-2 text-left">{day > 0 && day <= daysInMonth && <><p className="text-xs font-bold text-stone-500">{day}</p>{dayRequests.slice(0, 2).map((request) => <Link key={request._id} to="/requests/$requestId" params={{ requestId: request._id }} className="mt-1 block truncate rounded bg-[#f5ecee] px-1.5 py-1 text-[11px] font-semibold text-[#8b1629]" title={`${request.contactName} — ${request.eventType ?? "Prestation"}`}>{request.contactName}</Link>)}{dayRequests.length > 2 && <p className="mt-1 text-[10px] text-stone-500">+ {dayRequests.length - 2} dossier(s)</p>}</>}</div>; })}</div><p className="mt-3 text-xs text-stone-500">Chaque étiquette ouvre le dossier correspondant. Les dates affichées incluent les demandes et prestations non archivées.</p></section>;
+  const filtered = requests.filter((request) => filter === "all" || (filter === "requests" && !["devis_envoye", "relance", "accepte"].includes(request.status)) || (filter === "sent" && ["devis_envoye", "relance"].includes(request.status)) || (filter === "accepted" && request.status === "accepte"));
+  return <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="font-serif text-2xl font-bold">Vision du mois</h2><p className="capitalize text-sm text-stone-500">{label}</p></div><div className="flex gap-2"><button onClick={onToday} className="rounded-md border border-stone-200 px-3 text-xs font-bold">Aujourd’hui</button><button onClick={onPrevious} aria-label="Mois précédent" className="rounded-md border border-stone-200 p-2"><ArrowLeft className="size-4" /></button><button onClick={onNext} aria-label="Mois suivant" className="rounded-md border border-stone-200 p-2"><ArrowRight className="size-4" /></button></div></div><div className="mt-3 flex gap-2">{([ ["all", "Tous"], ["requests", "Demandes"], ["sent", "Devis envoyés"], ["accepted", "Prestations acceptées"] ] as const).map(([value, label]) => <button key={value} onClick={() => onFilter(value)} className={`rounded-full px-3 py-1 text-xs font-bold ${filter === value ? "bg-[#650d1c] text-white" : "bg-stone-100"}`}>{label}</button>)}</div><div className="mt-5 grid grid-cols-7 text-center text-xs font-bold text-stone-400">{["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((day) => <div key={day} className="py-2">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-t border-stone-100">{cells.map((day, index) => { const dayRequests = day > 0 && day <= daysInMonth ? filtered.filter((request) => { const event = request.eventDate ? new Date(request.eventDate) : null; return event?.getFullYear() === year && event.getMonth() === monthIndex && event.getDate() === day; }) : []; return <div key={index} className="min-h-24 border-b border-r border-stone-100 p-2 text-left">{day > 0 && day <= daysInMonth && <><p className="text-xs font-bold text-stone-500">{day}</p>{dayRequests.slice(0, 2).map((request) => <Link key={request._id} to="/requests/$requestId" params={{ requestId: request._id }} className={`mt-1 block truncate rounded px-1.5 py-1 text-[11px] font-semibold ${request.status === "accepte" ? "bg-emerald-50 text-emerald-800" : "bg-[#f5ecee] text-[#8b1629]"}`} title={`${request.contactName} — ${request.guestCount ?? "—"} pers. — ${requestStatusConfig[request.status].label}`}>{request.contactName}{request.guestCount ? ` · ${request.guestCount}` : ""}</Link>)}{dayRequests.length > 2 && <p className="mt-1 text-[10px] text-stone-500">+ {dayRequests.length - 2} dossier(s)</p>}</>}</div>; })}</div></section>;
 }
 
 function MetricCard({

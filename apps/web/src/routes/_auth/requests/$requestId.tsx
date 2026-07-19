@@ -114,6 +114,7 @@ function RequestDetailPage() {
     quotes,
     updateRequest,
     updateStatus,
+    reopenCancelledRequest,
     qualifyRequest,
     addNote,
     markHandled,
@@ -138,6 +139,7 @@ function RequestDetailPage() {
   const [actionDialog, setActionDialog] = useState<
     "followUp" | "refuse" | "annule" | null
   >(null);
+  const [reopenDialog, setReopenDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<RequestDetailTab>("resume");
 
   useEffect(() => {
@@ -280,11 +282,11 @@ function RequestDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={async () => { if (request.archivedAt) { await restoreRequest(request._id); toast.success("Dossier désarchivé"); } else if (nextAction.kind === "archive") { await archiveRequest(request._id); toast.success("Dossier archivé"); } else { await runPrimaryAction(); } }} className="inline-flex items-center gap-2 rounded-md bg-[#650d1c] px-4 py-2 text-sm font-bold text-white">
+          {request.status === "annule" ? <button onClick={() => setReopenDialog(true)} className="inline-flex items-center gap-2 rounded-md bg-[#650d1c] px-4 py-2 text-sm font-bold text-white">Réouvrir le dossier</button> : <button onClick={async () => { if (request.archivedAt) { await restoreRequest(request._id); toast.success("Dossier désarchivé"); } else if (nextAction.kind === "archive") { await archiveRequest(request._id); toast.success("Dossier archivé"); } else { await runPrimaryAction(); } }} className="inline-flex items-center gap-2 rounded-md bg-[#650d1c] px-4 py-2 text-sm font-bold text-white">
             {nextAction.kind === "archive" ? <Archive className="size-4" /> : <Clipboard className="size-4" />}
             {request.archivedAt ? "Désarchiver le dossier" : nextAction.title}
-          </button>
-          <details className="relative">
+          </button>}
+          {request.status !== "annule" ? <details className="relative">
             <summary className="cursor-pointer rounded-md border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700">Actions</summary>
             <div className="absolute right-0 z-20 mt-2 grid min-w-56 gap-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
               <button onClick={() => setMessageOpen(true)} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Préparer un e-mail</button>
@@ -294,7 +296,7 @@ function RequestDetailPage() {
               {!request.archivedAt ? <button onClick={async () => { await archiveRequest(request._id); toast.success("Dossier archivé"); }} className="rounded px-3 py-2 text-left text-sm font-semibold text-stone-600 hover:bg-stone-50">Archiver le dossier</button> : <button onClick={async () => { await restoreRequest(request._id); toast.success("Dossier désarchivé"); }} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Désarchiver le dossier</button>}
               <label className="mt-1 border-t border-stone-100 px-3 pt-2 text-xs font-semibold text-stone-500">Statut (secours)<select value={request.status} onChange={(e) => void changeStatus(e.target.value as RequestStatus)} className="mt-1 w-full rounded border border-stone-200 bg-white px-2 py-1.5 text-sm text-stone-700">{getAllowedRequestStatuses(request.status).map((value) => <option key={value} value={value}>{requestStatusConfig[value].label}</option>)}</select></label>
             </div>
-          </details>
+          </details> : null}
         </div>
       </section>
       <section className="rounded-xl border border-stone-200 bg-white px-5 py-4 shadow-sm">
@@ -493,6 +495,7 @@ function RequestDetailPage() {
         />
       )}
       {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande refusée" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
+      {reopenDialog ? <ReopenDialog onClose={() => setReopenDialog(false)} onSubmit={async (status) => { await reopenCancelledRequest(request._id, status); setReopenDialog(false); toast.success("Dossier réouvert"); }} /> : null}
     </div>
   );
 }
@@ -716,6 +719,13 @@ function ActionDialog({ kind, onClose, onSubmit }: { kind: "followUp" | "refuse"
   const [value, setValue] = useState("");
   const isFollowUp = kind === "followUp";
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><section role="dialog" aria-modal="true" className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 className="font-serif text-2xl font-bold">{isFollowUp ? "Programmer une relance" : kind === "refuse" ? "Refuser la demande" : "Annuler la demande"}</h2><p className="mt-1 text-sm text-stone-500">{isFollowUp ? "Choisissez la date de la prochaine action commerciale." : "Indiquez le motif afin de le conserver dans l’historique du dossier."}</p><label className="mt-4 grid gap-1 text-sm font-semibold">{isFollowUp ? "Date de relance" : "Motif"}{isFollowUp ? <input autoFocus type="date" value={value} onChange={(event) => setValue(event.target.value)} className="input" /> : <textarea autoFocus value={value} onChange={(event) => setValue(event.target.value)} className="input min-h-28" />}</label><div className="mt-5 flex justify-end gap-2"><button onClick={onClose} className="px-3 py-2 text-sm font-bold">Annuler</button><button disabled={!value.trim()} onClick={() => void onSubmit(value)} className="rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{isFollowUp ? "Programmer" : "Confirmer"}</button></div></section></div>;
+}
+function ReopenDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (status: Exclude<RequestStatus, "annule">) => Promise<void> }) {
+  const [status, setStatus] = useState<Exclude<RequestStatus, "annule">>("nouveau");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const options = requestStatusValues.filter((value): value is Exclude<RequestStatus, "annule"> => value !== "annule");
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><section role="dialog" aria-modal="true" className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 className="font-serif text-2xl font-bold">Réouvrir le dossier</h2><p className="mt-2 text-sm text-stone-600">Le dossier est actuellement annulé. Ses données, notes, devis et historique seront conservés.</p><label className="mt-4 grid gap-1 text-sm font-semibold">Nouveau statut<select value={status} onChange={(event) => { setStatus(event.target.value as Exclude<RequestStatus, "annule">); setError(""); }} className="input">{options.map((value) => <option key={value} value={value}>{requestStatusConfig[value].label}</option>)}</select></label>{error ? <p className="mt-3 rounded bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</p> : null}<div className="mt-5 flex justify-end gap-2"><button onClick={onClose} disabled={saving} className="px-3 py-2 text-sm font-bold">Annuler</button><button disabled={saving} onClick={async () => { setSaving(true); try { await onSubmit(status); } catch (reason) { setError(reason instanceof Error ? reason.message : "Réouverture impossible."); setSaving(false); } }} className="rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? "Réouverture…" : "Réouvrir le dossier"}</button></div></section></div>;
 }
 
 function MessageModal({

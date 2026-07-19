@@ -29,6 +29,7 @@ import { getRequestQualification } from "@/domain/request-qualification";
 import { calculateQuoteTotals } from "@/domain/quote-calculation";
 import { isQuoteDraftModified, isQuoteVersionFrozen } from "@/domain/quote-draft";
 import { canDeleteQuoteVersion } from "@/domain/quote-deletion";
+import { duplicateQuoteLine, moveQuoteLine, quickOptionCatalogId } from "@/domain/quote-editor";
 import { createCatalogQuoteLine, createFreeQuoteLine, quoteLineOrigin, type QuoteCompositionItem } from "@/domain/quote-line";
 import {
   applyFreeCompositionText,
@@ -61,6 +62,7 @@ const originLabel = (line: LocalQuoteLine) => ({
 })[quoteLineOrigin(line)];
 type CompositionMode = "preset" | "personalized" | "text";
 type CompositionDraft = { lineId: string; mode: CompositionMode; presetId: string; items: QuoteCompositionItem[]; freeText: string };
+type QuoteEditorStep = "offer" | "price" | "review";
 
 function QuotePreparationPage() {
   const { requestId } = Route.useParams();
@@ -96,6 +98,10 @@ function QuotePreparationPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [compositionDraft, setCompositionDraft] = useState<CompositionDraft | null>(null);
   const [deleteVersionId, setDeleteVersionId] = useState<string | null>(null);
+  const [editorStep, setEditorStep] = useState<QuoteEditorStep>("offer");
+  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [previewMode, setPreviewMode] = useState<"editor" | "split">("split");
 
   useEffect(() => {
     const version = storedQuote?.versions.find(
@@ -159,6 +165,7 @@ function QuotePreparationPage() {
       updatedAt: Date.now(),
     }));
     toast.success(`${recommendation.title} appliquée au brouillon`);
+    setSuggestionsOpen(false);
   };
   const updateLine = (id: string, changes: Partial<LocalQuoteLine>) =>
     setQuote((current) => ({
@@ -238,6 +245,13 @@ function QuotePreparationPage() {
     }));
     setCatalogItemId("");
   };
+  const addQuickOption = (kind: "delivery" | "tableware" | "setup" | "staff") => {
+    const item = catalog.find((entry) => entry.id === quickOptionCatalogId(kind, catalog));
+    if (!item) return;
+    setQuote((current) => ({ ...current, lines: [...current.lines, createCatalogQuoteLine(item, crypto.randomUUID())] }));
+  };
+  const duplicateLine = (line: LocalQuoteLine) => setQuote((current) => ({ ...current, lines: [...current.lines, duplicateQuoteLine(line, crypto.randomUUID())] }));
+  const moveLine = (index: number, direction: -1 | 1) => setQuote((current) => ({ ...current, lines: moveQuoteLine(current.lines, index, direction) }));
   const applyTemplate = (template: QuoteTemplate) => {
     const references: Record<Exclude<QuoteTemplate, "libre">, string> = {
       cocktail: "cocktail-brasserie",
@@ -303,7 +317,7 @@ function QuotePreparationPage() {
 
   return (
     <div className="quote-page mx-auto max-w-[96rem] space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="sticky top-2 z-30 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 bg-white/95 p-3 shadow-sm backdrop-blur">
         <Link
           to="/requests/$requestId"
           params={{ requestId }}
@@ -346,10 +360,14 @@ function QuotePreparationPage() {
           </button>
         </div>
       </div>
+      <nav aria-label="Étapes du devis" className="flex gap-1 overflow-x-auto border-b border-stone-200">
+        {([ ["offer", "1. Offre et composition"], ["price", "2. Prix et conditions"], ["review", "3. Vérification et envoi"] ] as const).map(([step, label]) => <button key={step} type="button" onClick={() => setEditorStep(step)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${editorStep === step ? "border-[#8b1629] text-[#8b1629]" : "border-transparent text-stone-500"}`}>{label}</button>)}
+        <button type="button" onClick={() => setPreviewMode((current) => current === "split" ? "editor" : "split")} className="ml-auto shrink-0 px-3 text-xs font-bold text-stone-600">{previewMode === "split" ? "Édition seule" : "Édition + aperçu"}</button>
+      </nav>
       <p className={`text-right text-xs font-semibold ${hasUnsavedChanges ? "text-amber-800" : "text-emerald-700"}`}>
         {hasUnsavedChanges ? "Modifications non enregistrées" : "Modifications enregistrées"}
       </p>
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(34rem,1.1fr)]">
+      <div className={`grid items-start gap-6 ${previewMode === "split" ? "xl:grid-cols-[minmax(0,0.9fr)_minmax(34rem,1.1fr)]" : "grid-cols-1"}`}>
       <div className="quote-editor-shell space-y-6">
       <section className={`rounded-xl border p-5 shadow-sm ${review.blockers.length ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
         <div className="flex items-start gap-3">
@@ -370,7 +388,7 @@ function QuotePreparationPage() {
             <h2 className="mt-1 font-serif text-2xl font-bold">Trois pistes à adapter</h2>
             <p className="mt-1 text-sm text-stone-600">Le système propose des pistes à partir du catalogue. Vous gardez toujours le dernier mot.</p>
           </div>
-          <Sparkles className="size-6 text-[#8b1629]" />
+          <button type="button" onClick={() => setSuggestionsOpen((current) => !current)} className="inline-flex items-center gap-1 text-sm font-bold text-[#8b1629]"><Sparkles className="size-5" />{suggestionsOpen ? "Replier" : "Voir les pistes"}</button>
         </div>
         {recommendations.length ? <div className="mt-5 grid gap-3 lg:grid-cols-3">{recommendations.map((recommendation) => <article key={recommendation.id} className="rounded-lg border border-stone-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold tracking-wide text-[#8b1629] uppercase">{recommendation.title}</p><h3 className="mt-1 font-semibold">{recommendation.quote.lines[0]?.label}</h3></div><strong className="text-sm">{euro.format(recommendation.totalTtcCents / 100)}</strong></div><ul className="mt-3 space-y-1 text-xs text-stone-600">{recommendation.reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul>{recommendation.foodCostCents !== undefined ? <p className="mt-3 rounded bg-stone-50 p-2 text-xs text-stone-600">Matière estimée : {euro.format(recommendation.foodCostCents / 100)} HT · {recommendation.foodCostSharePercent} % du prix HT</p> : <p className="mt-3 text-xs text-stone-500">Coût matière à compléter pour évaluer la rentabilité.</p>}{recommendation.warnings.length ? <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-950">{recommendation.warnings.map((warning) => <p key={warning}>⚠ {warning}</p>)}</div> : null}{recommendation.requiresManualApproval ? <p className="mt-3 text-xs font-bold text-[#8b1629]">Validation humaine obligatoire avant envoi.</p> : null}<button onClick={() => applyRecommendation(recommendation)} className="mt-4 w-full rounded-md border border-[#8b1629] px-3 py-2 text-sm font-bold text-[#8b1629]">Utiliser cette piste</button></article>)}</div> : <p className="mt-4 rounded-lg bg-white p-4 text-sm text-stone-600">Il faut renseigner le nombre de convives et créer une formule adaptée dans le catalogue pour obtenir des pistes.</p>}
       </section>
@@ -465,8 +483,9 @@ function QuotePreparationPage() {
               <p className="text-sm text-stone-500">Les versions envoyées restent figées.</p>
             </div>
             <span className="rounded-full bg-[#f5ecee] px-3 py-1 text-xs font-bold text-[#8b1629]">{storedQuote.quoteNumber}</span>
+            <button type="button" onClick={() => setVersionsOpen((current) => !current)} className="rounded-md border border-stone-200 bg-white px-3 py-2 text-sm font-bold">Versions du devis ({storedQuote.versions.length})</button>
           </div>
-          <div className="mt-4 space-y-2">
+          {versionsOpen ? <div className="mt-4 space-y-2">
             {[...storedQuote.versions].sort((a, b) => b.versionNumber - a.versionNumber).map((version) => (
               <div key={version.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#fffaf4] p-3">
                 <div><p className="font-bold">Version {version.versionNumber} · {version.status}</p><p className="text-xs text-stone-500">{version.sentAt ? `Envoyée le ${new Intl.DateTimeFormat("fr-FR").format(version.sentAt)}` : `Modifiée le ${new Intl.DateTimeFormat("fr-FR").format(version.updatedAt)}`}</p></div>
@@ -477,7 +496,7 @@ function QuotePreparationPage() {
                 </div>
               </div>
             ))}
-          </div>
+          </div> : null}
         </section>
       ) : null}
       {viewingVersionId && viewingVersionId !== storedQuote?.currentVersionId ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Vous consultez une version figée. <button onClick={() => setViewingVersionId(null)} className="font-bold underline">Revenir à la version courante</button></div> : null}
@@ -525,6 +544,7 @@ function QuotePreparationPage() {
               <CirclePlus className="size-4" />
               Ligne libre
             </button>
+            {([ ["delivery", "Livraison"], ["tableware", "Vaisselle"], ["setup", "Mise en place"], ["staff", "Personnel"] ] as const).map(([kind, label]) => <button key={kind} type="button" disabled={!quickOptionCatalogId(kind, catalog)} onClick={() => addQuickOption(kind)} className="rounded-md border border-stone-200 px-2 py-2 text-xs font-bold disabled:opacity-35">{label}</button>)}
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -608,6 +628,10 @@ function QuotePreparationPage() {
                       {euro.format((totals.lineTotals[index]?.totalTtcCents ?? 0) / 100)}
                     </td>
                     <td className="px-3 py-3">
+                      <div className="flex items-center gap-1">
+                      <button type="button" aria-label="Dupliquer la ligne" onClick={() => duplicateLine(line)} className="text-stone-500 hover:text-[#8b1629]">⧉</button>
+                      <button type="button" aria-label="Monter la ligne" disabled={index === 0} onClick={() => moveLine(index, -1)} className="text-stone-500 disabled:opacity-30">↑</button>
+                      <button type="button" aria-label="Descendre la ligne" disabled={index === quote.lines.length - 1} onClick={() => moveLine(index, 1)} className="text-stone-500 disabled:opacity-30">↓</button>
                       <button
                         aria-label="Supprimer la ligne"
                         disabled={quote.lines.length === 1}
@@ -623,6 +647,7 @@ function QuotePreparationPage() {
                       >
                         <Trash2 className="size-4" />
                       </button>
+                      </div>
                     </td>
                   </tr>
                   {line.details?.length ? (
@@ -736,9 +761,9 @@ function QuotePreparationPage() {
       </p>
       </fieldset>
       </div>
-      <div className="quote-preview xl:sticky xl:top-6">
+      {previewMode === "split" ? <div className="quote-preview xl:sticky xl:top-6">
         <QuoteDocument quote={storedQuote ?? { id: "preview", requestId: request._id, quoteNumber: quote.number ?? "Brouillon", currentVersionId: "preview", status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, totalHtCents: totals.totalHtCents, totalVatCents: totals.totalVatCents, totalTtcCents: totals.totalTtcCents, versions: [] }} version={{ id: "preview", versionNumber: quote.version, status: quote.status, createdAt: quote.issueDate, updatedAt: quote.updatedAt, lines: quote.lines, discountCents: quote.discountCents, issueDate: quote.issueDate, validUntil: quote.validUntil, depositPercent: quote.depositPercent, included: quote.included, excluded: quote.excluded, logistics: quote.logistics, introduction: quote.introduction, conditions: quote.conditions, remarks: quote.remarks, template: quote.template, totalHtCents: totals.totalHtCents, totalVatCents: totals.totalVatCents, totalTtcCents: totals.totalTtcCents }} request={request} />
-      </div>
+      </div> : null}
       </div>
       {compositionDraft && formulaLine ? <QuoteCompositionEditor
         line={formulaLine}

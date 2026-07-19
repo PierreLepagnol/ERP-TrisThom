@@ -233,6 +233,7 @@ type LocalCrm = {
     eventStartTime?: string;
     eventEndTime?: string;
   }) => Promise<void>;
+  reopenCancelledRequest: (requestId: string, status: Exclude<RequestStatus, "annule">) => Promise<void>;
   qualifyRequest: (requestId: string) => Promise<void>;
   updateRequest: (requestId: string, changes: EditableRequest) => Promise<void>;
   addNote: (requestId: string, content: string) => Promise<void>;
@@ -1058,6 +1059,18 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     },
     [requests],
   );
+  const reopenCancelledRequest = useCallback(async (requestId: string, status: Exclude<RequestStatus, "annule">) => {
+    const request = requests.find((item) => item._id === requestId);
+    const quote = quotes.find((item) => item.requestId === requestId);
+    const sent = quote?.versions.some((version) => version.status === "envoye" || Boolean(version.sentAt));
+    if (!request || request.status !== "annule") throw new Error("Seul un dossier annulé peut être réouvert.");
+    const missing = missingInformation(request);
+    if (["qualifie", "devis_a_preparer"].includes(status) && missing.length) throw new Error(`À compléter : ${missing.join(", ")}`);
+    if (["devis_envoye", "relance"].includes(status) && !sent) throw new Error("Un devis envoyé est nécessaire pour ce statut.");
+    if (status === "accepte" && (!sent || !request.eventDate || !request.eventStartTime || !request.eventEndTime)) throw new Error("Un devis envoyé, la date et les horaires sont obligatoires avant confirmation.");
+    const now = Date.now();
+    setRequests((current) => current.map((item) => item._id !== requestId ? item : { ...item, status, archivedAt: undefined, missingInformation: missing, acceptedAt: status === "accepte" ? now : item.acceptedAt, history: [...item.history, { id: id("reopened"), label: `Dossier réouvert : passage de Annulé à ${requestStatusConfig[status].label}`, createdAt: now }], updatedAt: now }));
+  }, [quotes, requests]);
 
   const qualifyRequest = useCallback(
     async (requestId: string) => {
@@ -1802,6 +1815,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       ),
       createRequest,
       updateStatus,
+      reopenCancelledRequest,
       qualifyRequest,
       updateRequest,
       addNote,
@@ -1893,6 +1907,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     startQuotePreparation,
     updateRequest,
     updateStatus,
+    reopenCancelledRequest,
   ]);
   return (
     <LocalCrmContext.Provider value={value}>
