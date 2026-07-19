@@ -1,7 +1,9 @@
 # TrisThom — spécification produit
 
-**Statut :** périmètre validé le 16 juillet 2026  
-**Produit :** application privée de gestion commerciale pour Bouillon Comptoir / TrisThom  
+**Statut :** périmètre validé le 16 juillet 2026
+
+**Produit :** application privée de gestion commerciale pour Bouillon Comptoir / TrisThom
+
 **Accès prévu :** `app.bouilloncomptoir.fr`
 
 ## 1. Objectif
