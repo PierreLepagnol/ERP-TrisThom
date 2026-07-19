@@ -14,6 +14,9 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 
 ## Getting Started
 
+Pour une première installation, notamment la configuration complète de Better Auth et
+du serveur SMTP OVH, suis le [guide pas à pas en français](SETUP.md).
+
 First, install the dependencies:
 
 ```bash
@@ -85,3 +88,9 @@ ERPTrisThom/
 - `bun run dev:web`: Start only the web application
 - `bun run dev:setup`: Setup and configure your Convex project
 - `bun run check-types`: Check TypeScript types across all apps
+
+## Production setup
+
+Development and production use separate Convex environment variables. The production
+checklist, including a distinct Better Auth secret and all OVH SMTP settings, is in the
+[setup guide](SETUP.md#configuration-de-la-production).

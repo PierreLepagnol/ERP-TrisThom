@@ -1,0 +1,2 @@
+cd .\ERP-TrisThom\
+bun run dev

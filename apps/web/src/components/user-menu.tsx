@@ -18,10 +18,12 @@ export default function UserMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" />}>{user?.name}</DropdownMenuTrigger>
+      <DropdownMenuTrigger render={<Button variant="outline" className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white" />}>
+        {user?.name?.split(" ")[0] ?? "Compte"}
+      </DropdownMenuTrigger>
       <DropdownMenuContent className="bg-card">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>Mon compte</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>{user?.email}</DropdownMenuItem>
           <DropdownMenuItem
@@ -36,7 +38,7 @@ export default function UserMenu() {
               });
             }}
           >
-            Sign Out
+            Se déconnecter
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

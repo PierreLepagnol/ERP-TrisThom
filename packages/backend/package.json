@@ -13,11 +13,13 @@
     "better-auth": "catalog:",
     "convex": "catalog:",
     "dotenv": "catalog:",
+    "nodemailer": "^9.0.3",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@ERPTrisThom/config": "workspace:*",
     "@types/node": "^24.3.0",
+    "@types/nodemailer": "^8.0.1",
     "typescript": "catalog:"
   }
 }
