@@ -13,6 +13,9 @@ const app = defineApp({
     SMTP_PORT: v.string(),
     SMTP_SECURE: v.string(),
     SMTP_USER: v.string(),
+    IMAP_HOST: v.string(),
+    IMAP_PORT: v.string(),
+    IMAP_SECURE: v.string(),
   },
 });
 app.use(betterAuth);

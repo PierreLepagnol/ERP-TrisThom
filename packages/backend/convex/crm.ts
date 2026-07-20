@@ -1160,6 +1160,43 @@ export const deleteCatalogItem = mutation({
   },
 });
 
+const demoContactNames = new Set([
+  "Camille Robert", "Lina Benali", "Nicolas Perrin", "Élodie Marchal",
+  "Hélène Martin", "Sophie Leroy", "Justine et Marc Delorme", "Claire Dumas",
+  "Thomas Giraud", "Romain Faure", "Mathieu Girard", "Anaïs Roussel",
+]);
+
+export const removeDemoRequests = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireAuthenticatedUser(ctx);
+    const requests = await ctx.db.query("requests").take(100);
+    const demoRequests = requests.filter((request) =>
+      demoContactNames.has(request.contactName) && !request.externalSourceId,
+    );
+    for (const request of demoRequests) {
+      const [notes, history, followUps, quote] = await Promise.all([
+        ctx.db.query("requestNotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).take(100),
+        ctx.db.query("requestHistory").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).take(100),
+        ctx.db.query("followUpTasks").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).take(100),
+        ctx.db.query("quotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).unique(),
+      ]);
+      for (const row of [...notes, ...history, ...followUps]) await ctx.db.delete(row._id);
+      if (quote) {
+        const versions = await ctx.db.query("quoteVersions").withIndex("by_quoteId_and_versionNumber", (index) => index.eq("quoteId", quote._id)).take(100);
+        for (const version of versions) {
+          const lines = await ctx.db.query("quoteLines").withIndex("by_quoteVersionId_and_position", (index) => index.eq("quoteVersionId", version._id)).take(200);
+          for (const line of lines) await ctx.db.delete(line._id);
+          await ctx.db.delete(version._id);
+        }
+        await ctx.db.delete(quote._id);
+      }
+      await ctx.db.delete(request._id);
+    }
+    return { removedRequestCount: demoRequests.length };
+  },
+});
+
 async function clearTable(ctx: MutationCtx, table: "requestNotes" | "requestHistory" | "followUpTasks" | "quoteLines" | "quoteVersions" | "quotes" | "requests" | "catalogItems") {
   const rows = await ctx.db.query(table).take(5_000);
   await Promise.all(rows.map((row) => ctx.db.delete(row._id)));

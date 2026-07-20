@@ -1,5 +1,6 @@
 import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex } from "@convex-dev/better-auth/plugins";
+import { crossDomain } from "@convex-dev/better-auth/plugins";
 import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { betterAuth } from "better-auth/minimal";
 import { magicLink } from "better-auth/plugins/magic-link";
@@ -33,6 +34,7 @@ function createAuth(ctx: GenericCtx<DataModel>) {
         authConfig,
         jwksRotateOnTokenGenerationError: true,
       }),
+      crossDomain({ siteUrl }),
     ],
   });
 }

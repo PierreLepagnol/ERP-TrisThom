@@ -82,6 +82,23 @@ export default defineSchema({
     .index("by_contactEmail", ["contactEmail"])
     .index("by_source_and_externalSourceId", ["source", "externalSourceId"]),
 
+  inboxMessages: defineTable({
+    externalId: v.string(),
+    messageId: v.optional(v.string()),
+    senderName: v.optional(v.string()),
+    senderEmail: v.optional(v.string()),
+    subject: v.optional(v.string()),
+    receivedAt: v.optional(v.number()),
+    textPreview: v.optional(v.string()),
+    attachmentNames: v.array(v.string()),
+    hasPdfAttachment: v.boolean(),
+    outcome: v.union(v.literal("created"), v.literal("ignored")),
+    requestId: v.optional(v.id("requests")),
+    createdAt: v.number(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_requestId", ["requestId"]),
+
   followUpTasks: defineTable({
     requestId: v.id("requests"),
     kind: v.union(v.literal("relance_j3"), v.literal("relance_j7"), v.literal("manuel")),
