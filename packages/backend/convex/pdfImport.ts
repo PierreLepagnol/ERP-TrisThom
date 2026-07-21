@@ -4,7 +4,6 @@ import PDFParser from "pdf2json";
 import { v } from "convex/values";
 
 import { authComponent } from "./auth";
-import { api } from "./_generated/api";
 import { action } from "./_generated/server";
 import { parseEmailRequest } from "./requestParsing";
 
@@ -36,20 +35,6 @@ export const import1001Pdf = action({
     const text = await extractText(content);
     if (!text) throw new Error("Aucun texte n’a été trouvé dans ce PDF.");
     const parsed = parseEmailRequest(text, new Date());
-    const requestId = await ctx.runMutation(api.crm.createRequest, {
-      source: "1001traiteur",
-      contactName: parsed.contactName ?? "Contact à identifier",
-      contactEmail: parsed.contactEmail,
-      contactPhone: parsed.contactPhone,
-      organizationName: parsed.organizationName,
-      eventType: parsed.eventType,
-      eventDate: parsed.eventDate,
-      eventAddress: parsed.eventAddress,
-      guestCount: parsed.guestCount,
-      budgetPerPersonCents: parsed.budgetPerPersonCents,
-      specialNeeds: parsed.specialNeeds,
-      message: `Importé depuis le PDF ${args.filename}\n\n${text}`.slice(0, 20_000),
-    });
-    return { requestId, parsed };
+    return { filename: args.filename, text, parsed };
   },
 });

@@ -510,6 +510,8 @@ export const workspace = query({
 export const createRequest = mutation({
   args: {
     source: requestSource,
+    externalSourceId: v.optional(v.string()),
+    historyLabel: v.optional(v.string()),
     contactName: v.string(),
     contactEmail: v.optional(v.string()),
     contactPhone: v.optional(v.string()),
@@ -531,16 +533,17 @@ export const createRequest = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const now = Date.now();
-    const contactName = args.contactName.trim() || "Contact à identifier";
+    const { historyLabel, ...requestInput } = args;
+    const contactName = requestInput.contactName.trim() || "Contact à identifier";
     const requestId = await ctx.db.insert("requests", {
-      ...args,
+      ...requestInput,
       contactName,
-      status: findMissingInformation(args).length ? "a_qualifier" : "nouveau",
-      missingInformation: findMissingInformation(args),
+      status: findMissingInformation(requestInput).length ? "a_qualifier" : "nouveau",
+      missingInformation: findMissingInformation(requestInput),
       createdAt: now,
       updatedAt: now,
     });
-    await addHistory(ctx, requestId, "Demande reçue", now);
+    await addHistory(ctx, requestId, historyLabel ?? "Demande reçue", now);
     return requestId;
   },
 });

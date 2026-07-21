@@ -1,5 +1,5 @@
 import { Link, Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { CalendarDays, ChevronRight, CircleAlert, Columns3, FileText, Filter, LayoutList, Users } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -41,9 +41,11 @@ function RequestsPage() {
   const navigate = useNavigate();
   const { requests, archivedRequests, quotes, createRequest, updateStatus, markHandled, scheduleFollowUp, startQuotePreparation } = useConvexCrm();
   const import1001Pdf = useAction(api.pdfImport.import1001Pdf);
+  const createImportedRequest = useMutation(api.crm.createRequest);
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
   const [isSaving, setIsSaving] = useState(false);
   const [creationMode, setCreationMode] = useState<"manual" | "pdf">("manual");
+  const [pdfAnalysis, setPdfAnalysis] = useState<PdfAnalysis | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "tous">("tous");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("tous");
@@ -118,11 +120,46 @@ function RequestsPage() {
         filename: file.name,
         contentBase64: dataUrl.slice(dataUrl.indexOf(",") + 1),
       });
-      setIsCreating(false);
-      toast.success("Demande 1001 Traiteur importée");
-      await navigate({ to: "/requests/$requestId", params: { requestId: result.requestId } });
+      setPdfAnalysis(result);
+      toast.success("PDF analysé : vérifiez les informations avant de créer le dossier.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Impossible d’importer ce PDF.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handlePdfCreation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pdfAnalysis) return;
+    const data = new FormData(event.currentTarget);
+    setIsSaving(true);
+    try {
+      const date = String(data.get("eventDate") ?? "");
+      const guestCount = String(data.get("guestCount") ?? "");
+      const budget = String(data.get("budgetPerPerson") ?? "");
+      const requestId = await createImportedRequest({
+        source: "1001traiteur",
+        externalSourceId: `pdf:${pdfAnalysis.filename}`,
+        historyLabel: "Demande importée depuis un PDF 1001 Traiteur",
+        contactName: String(data.get("contactName") ?? "").trim() || "Contact à identifier",
+        contactEmail: optionalValue(data, "contactEmail"),
+        contactPhone: optionalValue(data, "contactPhone"),
+        organizationName: optionalValue(data, "organizationName"),
+        eventType: optionalValue(data, "eventType"),
+        eventDate: date ? new Date(`${date}T12:00:00`).getTime() : undefined,
+        eventAddress: optionalValue(data, "eventAddress"),
+        guestCount: guestCount ? Number(guestCount) : undefined,
+        budgetPerPersonCents: budget ? Math.round(Number(budget) * 100) : undefined,
+        specialNeeds: optionalValue(data, "specialNeeds"),
+        message: `PDF source : ${pdfAnalysis.filename}\n\n${pdfAnalysis.text}`.slice(0, 20_000),
+      });
+      setPdfAnalysis(null);
+      setIsCreating(false);
+      toast.success("Demande 1001 Traiteur créée");
+      await navigate({ to: "/requests/$requestId", params: { requestId } });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de créer la demande.");
     } finally {
       setIsSaving(false);
     }
@@ -167,7 +204,7 @@ function RequestsPage() {
           <button type="button" onClick={() => setCreationMode("manual")} className={`rounded-md px-3 py-2 text-sm font-bold ${creationMode === "manual" ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-700"}`}>Saisie manuelle</button>
           <button type="button" onClick={() => setCreationMode("pdf")} className={`rounded-md px-3 py-2 text-sm font-bold ${creationMode === "pdf" ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-700"}`}>Importer un PDF 1001 Traiteur</button>
         </div>
-        {creationMode === "manual" ? <RequestForm isSaving={isSaving} onSubmit={handleSubmit} /> : <PdfImportForm isSaving={isSaving} onImport={handlePdfImport} />}
+        {creationMode === "manual" ? <RequestForm isSaving={isSaving} onSubmit={handleSubmit} /> : <PdfImportForm isSaving={isSaving} analysis={pdfAnalysis} onImport={handlePdfImport} onCancel={() => setPdfAnalysis(null)} onCreate={handlePdfCreation} />}
       </section> : null}
 
       <section className="grid gap-3 sm:grid-cols-3">
@@ -267,8 +304,36 @@ function RequestForm({
   );
 }
 
-function PdfImportForm({ isSaving, onImport }: { isSaving: boolean; onImport: (file: File) => Promise<void> }) {
+type PdfAnalysis = {
+  filename: string;
+  text: string;
+  parsed: {
+    contactName?: string; contactEmail?: string; contactPhone?: string; organizationName?: string;
+    eventType?: string; eventDate?: number; eventAddress?: string; guestCount?: number;
+    budgetPerPersonCents?: number; specialNeeds?: string;
+  };
+};
+
+function PdfImportForm({ isSaving, analysis, onImport, onCancel, onCreate }: { isSaving: boolean; analysis: PdfAnalysis | null; onImport: (file: File) => Promise<void>; onCancel: () => void; onCreate: (event: FormEvent<HTMLFormElement>) => Promise<void> }) {
   const [file, setFile] = useState<File | null>(null);
+  if (analysis) {
+    const { parsed } = analysis;
+    return <form onSubmit={(event) => void onCreate(event)} className="grid max-w-3xl gap-4 md:grid-cols-2">
+      <div className="md:col-span-2 rounded-md bg-[#fff8ef] p-4 text-sm"><strong>PDF analysé : {analysis.filename}</strong><p className="mt-1 text-stone-600">Vérifiez et corrigez les informations avant de créer le dossier. Les champs vides resteront à confirmer.</p></div>
+      <FormField label="Nom du contact"><input name="contactName" defaultValue={parsed.contactName ?? ""} className="input" /></FormField>
+      <FormField label="Entreprise"><input name="organizationName" defaultValue={parsed.organizationName ?? ""} className="input" /></FormField>
+      <FormField label="E-mail"><input name="contactEmail" type="email" defaultValue={parsed.contactEmail ?? ""} className="input" /></FormField>
+      <FormField label="Téléphone"><input name="contactPhone" defaultValue={parsed.contactPhone ?? ""} className="input" /></FormField>
+      <FormField label="Type d’événement"><input name="eventType" defaultValue={parsed.eventType ?? ""} className="input" /></FormField>
+      <FormField label="Nombre de convives"><input name="guestCount" type="number" min="1" defaultValue={parsed.guestCount?.toString() ?? ""} className="input" /></FormField>
+      <FormField label="Date"><input name="eventDate" type="date" defaultValue={parsed.eventDate ? new Date(parsed.eventDate).toISOString().slice(0, 10) : ""} className="input" /></FormField>
+      <FormField label="Budget par personne (€)"><input name="budgetPerPerson" type="number" min="0" step="0.01" defaultValue={parsed.budgetPerPersonCents ? (parsed.budgetPerPersonCents / 100).toString() : ""} className="input" /></FormField>
+      <FormField label="Lieu / adresse" className="md:col-span-2"><input name="eventAddress" defaultValue={parsed.eventAddress ?? ""} className="input" /></FormField>
+      <FormField label="Contraintes / informations complémentaires" className="md:col-span-2"><textarea name="specialNeeds" defaultValue={parsed.specialNeeds ?? ""} className="input min-h-20" /></FormField>
+      <details className="md:col-span-2 rounded-md border border-stone-200 p-3 text-sm"><summary className="cursor-pointer font-bold">Voir le texte lu dans le PDF</summary><p className="mt-3 whitespace-pre-wrap text-stone-600">{analysis.text}</p></details>
+      <div className="md:col-span-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={isSaving} className="px-4 py-2.5 text-sm font-bold">Annuler l’import</button><button disabled={isSaving} className="rounded-md bg-[#650d1c] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{isSaving ? "Création…" : "Créer la demande"}</button></div>
+    </form>;
+  }
   return <form onSubmit={(event) => { event.preventDefault(); if (file) void onImport(file); }} className="max-w-xl space-y-4">
     <div>
       <h2 className="font-serif text-2xl font-bold">Importer une demande 1001 Traiteur</h2>
@@ -276,7 +341,7 @@ function PdfImportForm({ isSaving, onImport }: { isSaving: boolean; onImport: (f
     </div>
     <label className="grid gap-1.5 text-sm font-semibold">PDF de la demande<input type="file" accept="application/pdf,.pdf" required onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="input" /></label>
     {file ? <p className="rounded-md bg-[#fff8ef] p-3 text-sm">Fichier sélectionné : <strong>{file.name}</strong></p> : null}
-    <button disabled={!file || isSaving} className="rounded-md bg-[#650d1c] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{isSaving ? "Lecture du PDF…" : "Créer la demande à partir du PDF"}</button>
+    <button disabled={!file || isSaving} className="rounded-md bg-[#650d1c] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{isSaving ? "Analyse du PDF…" : "Analyser le PDF"}</button>
   </form>;
 }
 
