@@ -15,7 +15,7 @@ export default function Header() {
   ] as const;
 
   async function resetDemo() {
-    if (!window.confirm("Réinitialiser les demandes, devis, relances et catalogue avec les données de démonstration ?")) return;
+    if (!window.confirm("Vider tous les dossiers, devis, relances et e-mails de test ? Le catalogue et les réglages seront conservés.")) return;
     try {
       await resetDemoData();
       toast.success("Les données de démonstration ont été réinitialisées.");
@@ -61,7 +61,7 @@ export default function Header() {
             <Plus className="size-4" />
             <span className="hidden sm:inline">Nouvelle demande</span>
           </Link>
-          <button type="button" onClick={() => void resetDemo()} className="hidden items-center gap-1.5 rounded-full border border-white/20 px-2.5 py-1 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white lg:inline-flex" title="Réinitialiser les données de démonstration"><RotateCcw className="size-3" />Réinitialiser la démo</button>
+          <button type="button" onClick={() => void resetDemo()} className="hidden items-center gap-1.5 rounded-full border border-white/20 px-2.5 py-1 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white lg:inline-flex" title="Vider les dossiers de test"><RotateCcw className="size-3" />Vider les dossiers</button>
           <span className="hidden rounded-full border border-white/20 px-2.5 py-1 text-xs font-semibold text-white/70 xl:inline">Convex connecté</span>
         </div>
       </div>

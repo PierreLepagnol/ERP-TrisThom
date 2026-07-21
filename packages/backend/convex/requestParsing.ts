@@ -73,6 +73,27 @@ function parsePhone(text: string) {
   return match?.[0]?.replace(/[.-]/g, " ");
 }
 
+function parseEmail(text: string) {
+  const match = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  return match?.[0]?.toLowerCase();
+}
+
+function parseBudgetPerPerson(text: string) {
+  const normalized = normalise(text).replace(/\s+/g, " ");
+  const match = normalized.match(/\b(\d{1,4}(?:[,.]\d{1,2})?)\s*€?\s*(?:euros?)?\s*(?:par|\/)\s*personne\b/);
+  return match ? Math.round(Number(match[1]!.replace(",", ".")) * 100) : undefined;
+}
+
+function parse1001Name(text: string) {
+  if (!/1001\s*(traiteurs|services)/i.test(text)) return undefined;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const greetingAt = lines.findIndex((line) => /^(cordialement|bien cordialement)/.test(normalise(line)));
+  if (greetingAt < 0) return undefined;
+  return lines.slice(0, greetingAt).reverse().find((line) =>
+    /^[\p{L}' -]{4,}$/.test(line) && line.trim().split(/\s+/).length >= 2,
+  );
+}
+
 function parseOrganization(text: string) {
   return text.split(/\r?\n/).map((line) => line.trim()).find((line) =>
     /\b(france|academy|groupe|company|entreprise|sarl|sas)\b/i.test(line) && !/coordinatrice|responsable/i.test(line),
@@ -89,6 +110,7 @@ export type ParsedEmailRequest = {
   guestCount?: number;
   eventType?: string;
   specialNeeds?: string;
+  budgetPerPersonCents?: number;
 };
 
 export function isCateringRequest(text: string) {
@@ -109,21 +131,24 @@ export function parseEmailRequest(text: string, receivedAt = new Date()): Parsed
   const normalized = normalise(client);
   const guestMatch = normalized.match(/\b(\d{1,4})\s*(?:personnes|convives|invites)\b/);
   const cold = /\b(?:froid|froide|froids|froides)\b/.test(normalized);
-  const eventType = /\bcocktail\b/.test(normalized) ? `Cocktail${cold ? " froid" : ""}`
+  const eventType = /\bmariage\b/.test(normalized) ? "Mariage"
+    : /\banniversaire\b/.test(normalized) ? "Anniversaire"
+    : /\bcocktail\b/.test(normalized) ? `Cocktail${cold ? " froid" : ""}`
     : /\bbuffet\b/.test(normalized) ? `Buffet${cold ? " froid" : ""}`
     : /\bbrunch\b/.test(normalized) ? "Brunch"
     : /\bplateaux?\b/.test(normalized) ? `Plateaux-repas${cold ? " froids" : ""}`
     : undefined;
   const forwarded = parseForwardedSender(client);
   return {
-    contactName: parseSignature(client) ?? forwarded.contactName,
-    contactEmail: forwarded.contactEmail,
+    contactName: parse1001Name(client) ?? parseSignature(client) ?? forwarded.contactName,
+    contactEmail: forwarded.contactEmail ?? parseEmail(client),
     contactPhone: parsePhone(client),
     organizationName: parseOrganization(client),
     eventDate: parseDate(client, receivedAt),
     eventAddress: parseAddress(client),
     guestCount: guestMatch ? Number(guestMatch[1]) : undefined,
     eventType,
+    budgetPerPersonCents: parseBudgetPerPerson(client),
     specialNeeds: cold ? "Proposition froide souhaitée" : undefined,
   };
 }

@@ -1197,6 +1197,39 @@ export const removeDemoRequests = mutation({
   },
 });
 
+/** Removes every dossier while preserving the catalogue and the inbox import ledger. */
+export const clearAllRequests = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireAuthenticatedUser(ctx);
+    const requests = await ctx.db.query("requests").take(500);
+    for (const request of requests) {
+      const [notes, history, followUps, messages, quote] = await Promise.all([
+        ctx.db.query("requestNotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).take(500),
+        ctx.db.query("requestHistory").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).take(500),
+        ctx.db.query("followUpTasks").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).take(500),
+        ctx.db.query("emailMessages").withIndex("by_requestId_and_sentAt", (index) => index.eq("requestId", request._id)).take(500),
+        ctx.db.query("quotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).unique(),
+      ]);
+      for (const row of [...notes, ...history, ...followUps, ...messages]) await ctx.db.delete(row._id);
+      if (quote) {
+        const versions = await ctx.db.query("quoteVersions").withIndex("by_quoteId_and_versionNumber", (index) => index.eq("quoteId", quote._id)).take(500);
+        for (const version of versions) {
+          const lines = await ctx.db.query("quoteLines").withIndex("by_quoteVersionId_and_position", (index) => index.eq("quoteVersionId", version._id)).take(500);
+          for (const line of lines) await ctx.db.delete(line._id);
+          await ctx.db.delete(version._id);
+        }
+        await ctx.db.delete(quote._id);
+      }
+      await ctx.db.delete(request._id);
+    }
+    // Keep message ids so the mailbox poller does not import old test e-mails again.
+    const inboxMessages = await ctx.db.query("inboxMessages").take(1_000);
+    for (const message of inboxMessages) await ctx.db.patch(message._id, { requestId: undefined });
+    return { removedRequestCount: requests.length };
+  },
+});
+
 async function clearTable(ctx: MutationCtx, table: "requestNotes" | "requestHistory" | "followUpTasks" | "quoteLines" | "quoteVersions" | "quotes" | "requests" | "catalogItems") {
   const rows = await ctx.db.query(table).take(5_000);
   await Promise.all(rows.map((row) => ctx.db.delete(row._id)));

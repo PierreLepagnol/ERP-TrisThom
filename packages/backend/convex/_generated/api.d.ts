@@ -20,6 +20,7 @@ import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
 import type * as inboxPoller from "../inboxPoller.js";
 import type * as magicLinkEmail from "../magicLinkEmail.js";
+import type * as pdfImport from "../pdfImport.js";
 import type * as privateData from "../privateData.js";
 import type * as requestParsing from "../requestParsing.js";
 
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   inbox: typeof inbox;
   inboxPoller: typeof inboxPoller;
   magicLinkEmail: typeof magicLinkEmail;
+  pdfImport: typeof pdfImport;
   privateData: typeof privateData;
   requestParsing: typeof requestParsing;
 }>;

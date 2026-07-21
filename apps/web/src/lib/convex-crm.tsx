@@ -54,7 +54,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
   const completeFollowUpMutation = useMutation(api.crm.completeFollowUp);
   const archiveRequestMutation = useMutation(api.crm.archiveRequest);
   const resetDemoDataMutation = useMutation(api.crm.resetDemoData);
-  const removeDemoRequestsMutation = useMutation(api.crm.removeDemoRequests);
+  const clearAllRequestsMutation = useMutation(api.crm.clearAllRequests);
   const isBootstrapping = useRef(false);
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
 
@@ -67,8 +67,8 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
   }, [resetDemoDataMutation]);
 
   const resetDemoData = useCallback(async () => {
-    await removeDemoRequestsMutation();
-  }, [removeDemoRequestsMutation]);
+    await clearAllRequestsMutation({});
+  }, [clearAllRequestsMutation]);
 
   useEffect(() => {
     if (

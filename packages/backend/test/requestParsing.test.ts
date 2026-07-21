@@ -63,3 +63,26 @@ Barry Callebaut France
 test("keeps an uncertain email for manual review instead of ignoring it", () => {
   expect(triageInboxMessage("Bonjour, merci pour votre retour. À bientôt.")).toBe("review");
 });
+
+test("reads the main fields from a 1001 Traiteur PDF", () => {
+  const text = `Bonjour,
+J'organise un événement de type « Anniversaire ».
+L'événement se tiendrait le samedi 17 octobre 2026 à Fontenay-en-Parisis (Val-d'Oise), à partir de 19:00. Nous attendons environ 80 convives.
+Notre budget est d'environ 20 € par personne.
+Pour échanger sur notre projet, je préfère être contactée par email.
+Merci d'avance pour vos propositions.
+Cordialement,
+Morgane Martin
+morgane.martin83@orange.fr
++33 6 79 32 37 68`;
+
+  expect(parseEmailRequest(text)).toMatchObject({
+    contactName: "Morgane Martin",
+    contactEmail: "morgane.martin83@orange.fr",
+    contactPhone: "+33 6 79 32 37 68",
+    eventDate: Date.UTC(2026, 9, 17),
+    guestCount: 80,
+    eventType: "Anniversaire",
+    budgetPerPersonCents: 2000,
+  });
+});

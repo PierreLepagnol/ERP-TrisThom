@@ -1,8 +1,11 @@
 import { Link, Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
+import { useAction } from "convex/react";
 import { CalendarDays, ChevronRight, CircleAlert, Columns3, FileText, Filter, LayoutList, Users } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+
+import { api } from "@ERPTrisThom/backend/convex/_generated/api";
 
 import { getAllowedRequestStatuses, pipelineRequestStatuses, requestStatusConfig, requestStatusValues, type RequestStatus } from "@/domain/request-status";
 import { filterOperationalRequests, matchesRequestSearch, sortRequests } from "@/domain/request-list";
@@ -37,8 +40,10 @@ function RequestsPage() {
   const searchParams = Route.useSearch();
   const navigate = useNavigate();
   const { requests, archivedRequests, quotes, createRequest, updateStatus, markHandled, scheduleFollowUp, startQuotePreparation } = useConvexCrm();
+  const import1001Pdf = useAction(api.pdfImport.import1001Pdf);
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
   const [isSaving, setIsSaving] = useState(false);
+  const [creationMode, setCreationMode] = useState<"manual" | "pdf">("manual");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "tous">("tous");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("tous");
@@ -101,6 +106,28 @@ function RequestsPage() {
     }
   }
 
+  async function handlePdfImport(file: File) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Le PDF doit faire moins de 5 Mo.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      const result = await import1001Pdf({
+        filename: file.name,
+        contentBase64: dataUrl.slice(dataUrl.indexOf(",") + 1),
+      });
+      setIsCreating(false);
+      toast.success("Demande 1001 Traiteur importée");
+      await navigate({ to: "/requests/$requestId", params: { requestId: result.requestId } });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible d’importer ce PDF.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function moveRequest(requestId: string, status: Status) {
     const request = requests.find((item) => item._id === requestId);
     if (!request || request.status === status || !getAllowedRequestStatuses(request.status).includes(status)) return;
@@ -135,7 +162,13 @@ function RequestsPage() {
         </button>
       </section>
 
-      {isCreating ? <RequestForm isSaving={isSaving} onSubmit={handleSubmit} /> : null}
+      {isCreating ? <section className="space-y-4 rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap gap-2 border-b border-stone-100 pb-4">
+          <button type="button" onClick={() => setCreationMode("manual")} className={`rounded-md px-3 py-2 text-sm font-bold ${creationMode === "manual" ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-700"}`}>Saisie manuelle</button>
+          <button type="button" onClick={() => setCreationMode("pdf")} className={`rounded-md px-3 py-2 text-sm font-bold ${creationMode === "pdf" ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-700"}`}>Importer un PDF 1001 Traiteur</button>
+        </div>
+        {creationMode === "manual" ? <RequestForm isSaving={isSaving} onSubmit={handleSubmit} /> : <PdfImportForm isSaving={isSaving} onImport={handlePdfImport} />}
+      </section> : null}
 
       <section className="grid gap-3 sm:grid-cols-3">
         <SummaryCard icon={CircleAlert} label="Nouvelles demandes" value={newCount} hint="À prendre en charge" onClick={() => { setQuickFilter("tous"); setStatusFilter("nouveau"); }} />
@@ -204,7 +237,7 @@ function RequestForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <form onSubmit={onSubmit} className="grid gap-4 rounded-xl border border-stone-200 bg-white p-6 shadow-sm md:grid-cols-2">
+    <form onSubmit={onSubmit} className="grid gap-4 md:grid-cols-2">
       <FormField label="Source">
         <select name="source" defaultValue="manuel" className="input">
           {sources.map((source) => (
@@ -234,6 +267,19 @@ function RequestForm({
   );
 }
 
+function PdfImportForm({ isSaving, onImport }: { isSaving: boolean; onImport: (file: File) => Promise<void> }) {
+  const [file, setFile] = useState<File | null>(null);
+  return <form onSubmit={(event) => { event.preventDefault(); if (file) void onImport(file); }} className="max-w-xl space-y-4">
+    <div>
+      <h2 className="font-serif text-2xl font-bold">Importer une demande 1001 Traiteur</h2>
+      <p className="mt-1 text-sm text-stone-600">Choisis le PDF reçu de 1001 Traiteur. Le contact, la date, le lieu, le nombre de personnes et le budget seront repris automatiquement dans le dossier.</p>
+    </div>
+    <label className="grid gap-1.5 text-sm font-semibold">PDF de la demande<input type="file" accept="application/pdf,.pdf" required onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="input" /></label>
+    {file ? <p className="rounded-md bg-[#fff8ef] p-3 text-sm">Fichier sélectionné : <strong>{file.name}</strong></p> : null}
+    <button disabled={!file || isSaving} className="rounded-md bg-[#650d1c] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{isSaving ? "Lecture du PDF…" : "Créer la demande à partir du PDF"}</button>
+  </form>;
+}
+
 function FormField({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
   return <label className={`grid gap-1.5 text-sm font-semibold ${className ?? ""}`}><span>{label}</span>{children}</label>;
 }
@@ -241,4 +287,13 @@ function FormField({ label, className, children }: { label: string; className?: 
 function optionalValue(formData: FormData, key: string) {
   const value = String(formData.get(key) ?? "").trim();
   return value || undefined;
+}
+
+function readAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Impossible de lire le PDF."));
+    reader.readAsDataURL(file);
+  });
 }
