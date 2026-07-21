@@ -137,13 +137,15 @@ export default defineSchema({
     requestId: v.id("requests"),
     content: v.string(),
     createdAt: v.number(),
-  }).index("by_requestId", ["requestId"]),
+    importKey: v.optional(v.string()),
+  }).index("by_requestId", ["requestId"]).index("by_importKey", ["importKey"]),
 
   requestHistory: defineTable({
     requestId: v.id("requests"),
     label: v.string(),
     createdAt: v.number(),
-  }).index("by_requestId", ["requestId"]),
+    importKey: v.optional(v.string()),
+  }).index("by_requestId", ["requestId"]).index("by_importKey", ["importKey"]),
 
   quotes: defineTable({
     requestId: v.id("requests"),

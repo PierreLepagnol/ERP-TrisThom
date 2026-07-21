@@ -6,14 +6,15 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { api } from "@ERPTrisThom/backend/convex/_generated/api";
+import { TimeSelect } from "@/components/time-select";
 
-import { getAllowedRequestStatuses, pipelineRequestStatuses, requestStatusConfig, requestStatusValues, type RequestStatus } from "@/domain/request-status";
+import { commercialStatusValues, getAllowedRequestStatuses, pipelineRequestStatuses, requestStatusConfig, type RequestStatus } from "@/domain/request-status";
 import { filterOperationalRequests, matchesRequestSearch, sortRequests } from "@/domain/request-list";
 import { useConvexCrm } from "@/lib/convex-crm";
 import type { LocalRequest } from "@/lib/local-crm";
 
 const sources = ["manuel", "telephone", "1001traiteur"] as const;
-const statuses = requestStatusValues;
+const statuses = commercialStatusValues;
 
 type Source = (typeof sources)[number];
 type Status = RequestStatus;
@@ -291,8 +292,8 @@ function RequestForm({
       <FormField label="Nombre de personnes"><input name="guestCount" type="number" min="1" className="input" /></FormField>
       <FormField label="Date souhaitée"><input name="eventDate" type="date" className="input" /></FormField>
       <FormField label="Budget estimé (€)"><input name="budget" type="number" min="0" step="0.01" className="input" /></FormField>
-      <FormField label="Début"><input name="eventStartTime" type="time" className="input" /></FormField>
-      <FormField label="Fin"><input name="eventEndTime" type="time" className="input" /></FormField>
+      <FormField label="Début du créneau"><TimeSelect name="eventStartTime" /></FormField>
+      <FormField label="Fin du créneau"><TimeSelect name="eventEndTime" /></FormField>
       <FormField label="Adresse de l'événement" className="md:col-span-2"><input name="eventAddress" className="input" /></FormField>
       <FormField label="Message / notes" className="md:col-span-2"><textarea name="message" className="input min-h-24" /></FormField>
       <div className="md:col-span-2 flex justify-end">

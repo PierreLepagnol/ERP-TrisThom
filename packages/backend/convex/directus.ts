@@ -46,7 +46,7 @@ export const ingestRequest = internalMutation({
     return await ctx.db.insert("requests", {
       ...args,
       source: "directus",
-      status: requestMissingInformation.length === 0 ? "nouveau" : "a_qualifier",
+      status: "nouveau",
       missingInformation: requestMissingInformation,
       createdAt: now,
       updatedAt: now,

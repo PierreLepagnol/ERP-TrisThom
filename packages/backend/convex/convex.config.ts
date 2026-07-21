@@ -16,6 +16,7 @@ const app = defineApp({
     IMAP_HOST: v.string(),
     IMAP_PORT: v.string(),
     IMAP_SECURE: v.string(),
+    CRM_IMPORT_SECRET: v.optional(v.string()),
   },
 });
 app.use(betterAuth);

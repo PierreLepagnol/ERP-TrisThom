@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as crm from "../crm.js";
+import type * as crmImport from "../crmImport.js";
 import type * as crons from "../crons.js";
 import type * as customerEmail from "../customerEmail.js";
 import type * as customerEmailData from "../customerEmailData.js";
@@ -33,6 +34,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crm: typeof crm;
+  crmImport: typeof crmImport;
   crons: typeof crons;
   customerEmail: typeof customerEmail;
   customerEmailData: typeof customerEmailData;

@@ -15,6 +15,11 @@ apps/web/src/routeTree.gen.ts
 .env
 .env*.local
 
+# Private CRM migration exports (never commit customer data)
+private-data/
+*.private-crm.json
+crm_import_prive_*.json
+
 # IDEs and editors
 .vscode/*
 !.vscode/settings.json

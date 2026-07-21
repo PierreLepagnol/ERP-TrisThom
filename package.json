@@ -30,7 +30,8 @@
     "check-types": "bunx tsc --noEmit -p apps/web/tsconfig.json && bunx tsc --noEmit -p packages/ui/tsconfig.json && bunx tsc --noEmit -p packages/env/tsconfig.json && bunx tsc --noEmit -p packages/backend/convex/tsconfig.json",
     "dev:web": "turbo run dev -F web",
     "dev:server": "turbo run dev -F @ERPTrisThom/backend",
-    "dev:setup": "turbo run dev:setup -F @ERPTrisThom/backend"
+    "dev:setup": "turbo run dev:setup -F @ERPTrisThom/backend",
+    "crm:import": "bun scripts/import-crm.ts"
   },
   "dependencies": {
     "@ERPTrisThom/env": "workspace:*",

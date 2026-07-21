@@ -90,7 +90,7 @@ function parse1001Name(text: string) {
   const greetingAt = lines.findIndex((line) => /^(cordialement|bien cordialement)/.test(normalise(line)));
   if (greetingAt < 0) return undefined;
   return lines.slice(0, greetingAt).reverse().find((line) =>
-    /^[\p{L}' -]{4,}$/.test(line) && line.trim().split(/\s+/).length >= 2,
+    /^[\p{L}' -]{4,}$/u.test(line) && line.trim().split(/\s+/).length >= 2,
   );
 }
 

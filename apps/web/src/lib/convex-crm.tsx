@@ -6,16 +6,11 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useRef,
-  useState,
 } from "react";
 
-import { createDemoRequests } from "@/data/demo-crm-data";
 import { activeRequestStatuses } from "@/domain/request-status";
 import {
-  cloneDefaultCatalog,
   type CatalogItem,
   type CreateRequestInput,
   type EditableRequest,
@@ -53,44 +48,11 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
   const deleteCatalogItemMutation = useMutation(api.crm.deleteCatalogItem);
   const completeFollowUpMutation = useMutation(api.crm.completeFollowUp);
   const archiveRequestMutation = useMutation(api.crm.archiveRequest);
-  const resetDemoDataMutation = useMutation(api.crm.resetDemoData);
   const clearAllRequestsMutation = useMutation(api.crm.clearAllRequests);
-  const isBootstrapping = useRef(false);
-  const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
-
-  const writeDemoData = useCallback(async (onlyIfEmpty: boolean) => {
-    await resetDemoDataMutation({
-      requests: createDemoRequests(),
-      catalog: cloneDefaultCatalog(),
-      onlyIfEmpty,
-    });
-  }, [resetDemoDataMutation]);
 
   const resetDemoData = useCallback(async () => {
     await clearAllRequestsMutation({});
   }, [clearAllRequestsMutation]);
-
-  useEffect(() => {
-    if (
-      workspace &&
-      workspace.requests.length === 0 &&
-      workspace.catalog.length === 0 &&
-      !isBootstrapping.current
-    ) {
-      isBootstrapping.current = true;
-      void writeDemoData(true)
-        .catch((error: unknown) => {
-          setBootstrapError(
-            error instanceof Error
-              ? error
-              : new Error("Impossible d’initialiser les données de démonstration."),
-          );
-        })
-        .finally(() => {
-          isBootstrapping.current = false;
-        });
-    }
-  }, [workspace, writeDemoData]);
 
   const createRequest = useCallback(
     async (input: CreateRequestInput) => {
@@ -440,8 +402,6 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
     updateRequest,
     updateStatus,
   ]);
-
-  if (bootstrapError) throw bootstrapError;
 
   return (
     <ConvexCrmContext.Provider value={value}>

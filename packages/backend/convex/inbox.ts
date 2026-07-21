@@ -177,7 +177,7 @@ export const recordMessage = internalMutation({
       requestId = await ctx.db.insert("requests", {
         source: is1001 ? "1001traiteur" : "email",
         externalSourceId: args.externalId,
-        status: "a_qualifier",
+        status: "nouveau",
         contactName: args.senderName?.trim() || args.senderEmail || "Contact à identifier",
         contactEmail: parsed.contactEmail || args.senderEmail,
         contactPhone: parsed.contactPhone,

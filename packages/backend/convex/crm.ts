@@ -538,7 +538,7 @@ export const createRequest = mutation({
     const requestId = await ctx.db.insert("requests", {
       ...requestInput,
       contactName,
-      status: findMissingInformation(requestInput).length ? "a_qualifier" : "nouveau",
+      status: "nouveau",
       missingInformation: findMissingInformation(requestInput),
       createdAt: now,
       updatedAt: now,
@@ -724,13 +724,11 @@ export const startQuotePreparation = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    const missing = findMissingInformation(request);
-    if (missing.length) throw new Error(`À compléter : ${missing.join(", ")}`);
-    if (!allowedTransitions[request.status].includes("devis_a_preparer")) {
-      throw new Error("La demande doit être qualifiée avant la préparation du devis.");
+    if (["refuse", "annule", "accepte"].includes(request.status)) {
+      throw new Error("Ce dossier ne peut plus ouvrir un devis.");
     }
     const now = Date.now();
-    await ctx.db.patch(request._id, { status: "devis_a_preparer", missingInformation: [], updatedAt: now });
+    await ctx.db.patch(request._id, { status: "devis_a_preparer", missingInformation: findMissingInformation(request), updatedAt: now });
     if (request.status !== "devis_a_preparer") {
       await addHistory(ctx, request._id, "Préparation du devis commencée", now);
     }
@@ -743,7 +741,7 @@ export const scheduleFollowUp = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    if (!allowedTransitions[request.status].includes("relance")) {
+    if (request.status !== "devis_envoye" && request.status !== "relance") {
       throw new Error("Une relance ne peut être programmée qu’après l’envoi du devis.");
     }
     const now = Date.now();
@@ -754,7 +752,7 @@ export const scheduleFollowUp = mutation({
       dueAt: args.dueAt,
       createdAt: now,
     });
-    await ctx.db.patch(request._id, { status: "relance", nextActionAt: args.dueAt, updatedAt: now });
+    await ctx.db.patch(request._id, { status: "devis_envoye", nextActionAt: args.dueAt, updatedAt: now });
     await addHistory(ctx, request._id, "Relance programmée", now);
     return null;
   },
