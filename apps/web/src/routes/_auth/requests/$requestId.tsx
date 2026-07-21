@@ -13,8 +13,12 @@ import {
   MessageSquare,
   Save,
 } from "lucide-react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+import { api } from "@ERPTrisThom/backend/convex/_generated/api";
+import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
 
 import {
   activeRequestStatuses,
@@ -133,6 +137,13 @@ function RequestDetailPage() {
   const request = [...requests, ...archivedRequests].find(
     (item) => item._id === requestId,
   );
+  const emailMessages = useQuery(
+    api.customerEmailData.listForRequest,
+    request ? { requestId: request._id as Id<"requests"> } : "skip",
+  );
+  const sendEmail = useAction(api.customerEmail.send);
+  const emailTemplates = useQuery(api.emailTemplates.list);
+  const saveEmailTemplate = useMutation(api.emailTemplates.save);
   const quoteRecord = quotes.find((item) => item.requestId === requestId);
   const [messageOpen, setMessageOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -391,7 +402,10 @@ function RequestDetailPage() {
             onEdit={() => setEditing(true)}
             onPrepareMessage={() => setMessageOpen(true)}
           /> : null}
-          {activeTab === "echanges" ? <Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} /> : null}
+          {activeTab === "echanges" ? <>
+            <EmailConversation messages={emailMessages ?? []} />
+            <Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} />
+          </> : null}
           {activeTab === "historique" ? <History request={request} /> : null}
         </main>
         <aside className="space-y-5">
@@ -493,7 +507,30 @@ function RequestDetailPage() {
       {messageOpen && (
         <MessageModal
           initial={draftMessage}
+          recipient={request.contactEmail}
+          subject={emailSubject(emailMessages ?? [])}
+          templates={[...builtInEmailTemplates, ...(emailTemplates ?? [])]}
           onClose={() => setMessageOpen(false)}
+          onSaveTemplate={async (name, subject, body) => {
+            await saveEmailTemplate({ name, subject, body });
+            toast.success("Modèle d’e-mail enregistré");
+          }}
+          onSend={async (subject, body, attachments) => {
+            if (!request.contactEmail) {
+              throw new Error("Ajoutez l’adresse e-mail du client avant d’envoyer.");
+            }
+            const lastMessage = (emailMessages ?? []).at(-1);
+            await sendEmail({
+              requestId: request._id as Id<"requests">,
+              recipientEmail: request.contactEmail,
+              subject,
+              body,
+              inReplyTo: lastMessage?.messageId,
+              attachments,
+            });
+            toast.success("E-mail envoyé et ajouté au dossier");
+            setMessageOpen(false);
+          }}
         />
       )}
       {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande refusée" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
@@ -647,6 +684,87 @@ function RequestInformation({
     </div>
   );
 }
+
+type EmailMessage = {
+  _id: string;
+  direction: "inbound" | "outbound";
+  messageId: string;
+  subject?: string;
+  body: string;
+  senderEmail?: string;
+  recipientEmail?: string;
+  attachmentNames?: string[];
+  sentAt: number;
+};
+
+type EmailTemplate = {
+  _id: string;
+  name: string;
+  subject: string;
+  body: string;
+};
+
+const builtInEmailTemplates: EmailTemplate[] = [
+  {
+    _id: "builtin-missing-information",
+    name: "Demander les informations manquantes",
+    subject: "Quelques précisions pour votre devis",
+    body: "Bonjour,\n\nAfin de préparer votre devis au plus juste, pourriez-vous nous transmettre les quelques précisions manquantes concernant votre demande ?\n\nMerci et à bientôt,\nBouillon Comptoir",
+  },
+  {
+    _id: "builtin-quote-sent",
+    name: "Accompagner l’envoi d’un devis",
+    subject: "Votre devis Bouillon Comptoir",
+    body: "Bonjour,\n\nVous trouverez ci-joint notre proposition pour votre événement. Nous restons à votre disposition pour toute question ou ajustement.\n\nBien cordialement,\nBouillon Comptoir",
+  },
+  {
+    _id: "builtin-follow-up",
+    name: "Relancer un devis",
+    subject: "Avez-vous pu consulter notre proposition ?",
+    body: "Bonjour,\n\nNous nous permettons de revenir vers vous afin de savoir si vous avez pu consulter notre proposition. Nous restons disponibles pour l’adapter à vos besoins.\n\nBien cordialement,\nBouillon Comptoir",
+  },
+];
+
+function emailSubject(messages: EmailMessage[]) {
+  const latestSubject = messages.at(-1)?.subject?.trim();
+  if (!latestSubject) return "Votre demande — Bouillon Comptoir";
+  return /^re:/i.test(latestSubject) ? latestSubject : `Re: ${latestSubject}`;
+}
+
+function EmailConversation({ messages }: { messages: EmailMessage[] }) {
+  return (
+    <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold tracking-[.14em] text-[#7d6f67] uppercase">E-mails</p>
+          <h2 className="mt-1 font-serif text-xl font-bold">Conversation avec le client</h2>
+        </div>
+        <span className="text-sm text-stone-500">{messages.length} message{messages.length > 1 ? "s" : ""}</span>
+      </div>
+      {messages.length === 0 ? (
+        <p className="mt-4 rounded-lg bg-stone-50 p-4 text-sm text-stone-500">
+          Les prochains e-mails reçus et envoyés depuis ce dossier apparaîtront ici.
+        </p>
+      ) : (
+        <ol className="mt-4 space-y-3">
+          {messages.map((message) => {
+            const outbound = message.direction === "outbound";
+            return <li key={message._id} className={`rounded-lg p-4 ${outbound ? "ml-6 bg-[#f9ecee]" : "mr-6 bg-stone-50"}`}>
+              <div className="flex flex-wrap justify-between gap-2 text-xs">
+                <p className="font-bold text-[#650d1c]">{outbound ? "Vous avez envoyé" : "Client"}</p>
+                <time className="text-stone-500">{timeFormat.format(message.sentAt)}</time>
+              </div>
+              {message.subject ? <p className="mt-2 text-sm font-semibold">{message.subject}</p> : null}
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
+              {message.attachmentNames?.length ? <p className="mt-3 text-xs font-semibold text-[#8b1629]">Pièce jointe : {message.attachmentNames.join(", ")}</p> : null}
+            </li>;
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function Notes({
   request,
   note,
@@ -732,12 +850,26 @@ function ReopenDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (s
 
 function MessageModal({
   initial,
+  recipient,
+  subject: initialSubject,
+  templates,
   onClose,
+  onSend,
+  onSaveTemplate,
 }: {
   initial: string;
+  recipient?: string;
+  subject: string;
+  templates: EmailTemplate[];
   onClose: () => void;
+  onSend: (subject: string, body: string, attachments: Array<{ filename: string; contentBase64: string; contentType: string }>) => Promise<void>;
+  onSaveTemplate: (name: string, subject: string, body: string) => Promise<void>;
 }) {
   const [message, setMessage] = useState(initial);
+  const [subject, setSubject] = useState(initialSubject);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [attachments, setAttachments] = useState<Array<{ filename: string; contentBase64: string; contentType: string }>>([]);
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
       <section
@@ -746,34 +878,122 @@ function MessageModal({
         className="w-full max-w-xl rounded-xl bg-white p-6 shadow-xl"
       >
         <h2 className="font-serif text-2xl font-bold">
-          Demander les informations manquantes
+          Écrire au client
         </h2>
         <p className="mt-1 text-sm text-stone-500">
-          Le message est prêt à être copié, aucun e-mail ne sera envoyé.
+          {recipient ? `Cet e-mail sera envoyé à ${recipient} et gardé dans le dossier.` : "Ajoutez d’abord l’adresse e-mail du client dans le dossier."}
         </p>
+        {templates.length > 0 ? <label className="mt-4 grid gap-1 text-sm font-semibold">
+          Utiliser un modèle enregistré
+          <select
+            defaultValue=""
+            onChange={(event) => {
+              const selected = templates.find((template) => template._id === event.target.value);
+              if (selected) {
+                setSubject(selected.subject);
+                setMessage(selected.body);
+              }
+            }}
+            className="input"
+          >
+            <option value="">Choisir un modèle…</option>
+            {templates.map((template) => <option key={template._id} value={template._id}>{template.name}</option>)}
+          </select>
+        </label> : null}
+        <label className="mt-4 grid gap-1 text-sm font-semibold">
+          Objet
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} className="input" />
+        </label>
+        <label className="mt-4 grid gap-1 text-sm font-semibold">
+          Message
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          className="input mt-4 min-h-48"
+          className="input min-h-48"
         />
+        </label>
+        <label className="mt-4 grid gap-1 text-sm font-semibold">
+          Joindre le devis ou un document PDF
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            onChange={async (event) => {
+              try {
+                setError("");
+                setAttachments(await readPdfAttachments(event.target.files));
+              } catch (reason) {
+                event.target.value = "";
+                setAttachments([]);
+                setError(reason instanceof Error ? reason.message : "Impossible de lire le PDF.");
+              }
+            }}
+            className="input"
+          />
+          {attachments.length ? <span className="text-xs font-normal text-stone-500">{attachments.map((attachment) => attachment.filename).join(", ")}</span> : null}
+        </label>
+        {error ? <p className="mt-3 rounded-md bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 text-sm font-bold">
-            Fermer
+          <button onClick={onClose} disabled={sending} className="px-3 py-2 text-sm font-bold">Annuler</button>
+          <button
+            type="button"
+            disabled={!subject.trim() || !message.trim() || sending}
+            onClick={async () => {
+              const name = window.prompt("Nom du modèle (ex. Relance devis)");
+              if (!name?.trim()) return;
+              try {
+                await onSaveTemplate(name, subject, message);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "Impossible d’enregistrer le modèle.");
+              }
+            }}
+            className="px-3 py-2 text-sm font-bold text-[#8b1629] disabled:opacity-50"
+          >
+            Enregistrer comme modèle
           </button>
           <button
             onClick={async () => {
-              await navigator.clipboard.writeText(message);
-              toast.success("Message copié");
+              setError("");
+              setSending(true);
+              try {
+                await onSend(subject, message, attachments);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "Impossible d’envoyer l’e-mail.");
+              } finally {
+                setSending(false);
+              }
             }}
-            className="rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white"
+            disabled={!recipient || !subject.trim() || !message.trim() || sending}
+            className="rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
-            Copier le message
+            {sending ? "Envoi…" : "Envoyer l’e-mail"}
           </button>
         </div>
       </section>
     </div>
   );
 }
+
+async function readPdfAttachments(files: FileList | null) {
+  const selected = Array.from(files ?? []);
+  if (selected.length > 3) throw new Error("Vous pouvez joindre au maximum 3 fichiers.");
+  return await Promise.all(selected.map(async (file) => {
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      throw new Error("Seuls les fichiers PDF peuvent être joints.");
+    }
+    if (file.size > 5 * 1024 * 1024) throw new Error(`${file.name} dépasse 5 Mo.`);
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error(`Impossible de lire ${file.name}.`));
+      reader.readAsDataURL(file);
+    });
+    const separator = dataUrl.indexOf(",");
+    if (separator < 0) throw new Error(`Impossible de préparer ${file.name}.`);
+    return { filename: file.name, contentBase64: dataUrl.slice(separator + 1), contentType: "application/pdf" };
+  }));
+}
+
 function EmptyRequest() {
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-8">

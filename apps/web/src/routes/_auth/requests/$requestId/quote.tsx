@@ -1,4 +1,7 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useAction } from "convex/react";
+import { api } from "@ERPTrisThom/backend/convex/_generated/api";
+import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
 import { useConvexCrm } from "@/lib/convex-crm";
 import {
   ChevronLeft,
@@ -28,6 +31,7 @@ import { recommendQuotes } from "@/domain/quote-recommendation";
 import { getRequestQualification } from "@/domain/request-qualification";
 import { calculateQuoteTotals } from "@/domain/quote-calculation";
 import { isQuoteDraftModified, isQuoteVersionFrozen } from "@/domain/quote-draft";
+import { generateQuotePdf } from "@/lib/quote-pdf";
 import { canDeleteQuoteVersion } from "@/domain/quote-deletion";
 import { duplicateQuoteLine, moveQuoteLine, quickOptionCatalogId } from "@/domain/quote-editor";
 import { createCatalogQuoteLine, createFreeQuoteLine, quoteLineOrigin, type QuoteCompositionItem } from "@/domain/quote-line";
@@ -102,6 +106,8 @@ function QuotePreparationPage() {
   const [suggestionsOpen, setSuggestionsOpen] = useState(true);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState<"editor" | "split">("split");
+  const [isSendingQuote, setIsSendingQuote] = useState(false);
+  const sendEmail = useAction(api.customerEmail.send);
 
   useEffect(() => {
     const version = storedQuote?.versions.find(
@@ -233,6 +239,31 @@ function QuotePreparationPage() {
     if (hasUnsavedChanges && !(await persist("brouillon"))) return;
     openPrint();
   };
+  const sendQuote = async () => {
+    if (!request.contactEmail) {
+      toast.error("Ajoutez l’adresse e-mail du client avant d’envoyer le devis.");
+      return;
+    }
+    if (!window.confirm(`Envoyer le devis ${quote.number ?? ""} à ${request.contactEmail} ?`)) return;
+    if (!(await persist("pret"))) return;
+    setIsSendingQuote(true);
+    try {
+      const filename = `${quote.number ?? "devis-bouillon-comptoir"}.pdf`;
+      await sendEmail({
+        requestId: request._id as Id<"requests">,
+        recipientEmail: request.contactEmail,
+        subject: `Votre devis ${quote.number ?? "Bouillon Comptoir"}`,
+        body: `Bonjour ${request.contactName},\n\nVous trouverez ci-joint notre devis pour votre événement. Nous restons à votre disposition pour toute question ou ajustement.\n\nBien cordialement,\nBouillon Comptoir`,
+        attachments: [{ filename, contentBase64: generateQuotePdf(request, quote), contentType: "application/pdf" }],
+      });
+      await persist("envoye");
+      toast.success("Devis PDF envoyé au client");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible d’envoyer le devis.");
+    } finally {
+      setIsSendingQuote(false);
+    }
+  };
   const addCatalogItem = () => {
     const item = catalog.find((entry) => entry.id === catalogItemId);
     if (!item) return;
@@ -351,12 +382,12 @@ function QuotePreparationPage() {
             Prêt à envoyer
           </button>
           <button
-            onClick={() => void persist("envoye")}
-            disabled={isSaving || isHistoricalVersion || isFrozenVersion}
+            onClick={() => void sendQuote()}
+            disabled={isSaving || isSendingQuote || isHistoricalVersion || isFrozenVersion}
             className="inline-flex items-center gap-1 rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white"
           >
             <Send className="size-4" />
-            Marquer envoyé
+            {isSendingQuote ? "Envoi du devis…" : "Envoyer le devis"}
           </button>
         </div>
       </div>

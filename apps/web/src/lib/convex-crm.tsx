@@ -1,4 +1,5 @@
 import { api } from "@ERPTrisThom/backend/convex/_generated/api";
+import { toConvexQuote } from "@/domain/quote-payload";
 import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -235,7 +236,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
 
   const saveQuote = useCallback<LocalCrm["saveQuote"]>(
     async (id, quote: LocalQuote) => {
-      await saveQuoteMutation({ requestId: requestId(id), quote });
+      await saveQuoteMutation({ requestId: requestId(id), quote: toConvexQuote(quote) });
     },
     [saveQuoteMutation],
   );

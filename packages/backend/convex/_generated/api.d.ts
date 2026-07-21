@@ -11,7 +11,10 @@
 import type * as auth from "../auth.js";
 import type * as crm from "../crm.js";
 import type * as crons from "../crons.js";
+import type * as customerEmail from "../customerEmail.js";
+import type * as customerEmailData from "../customerEmailData.js";
 import type * as directus from "../directus.js";
+import type * as emailTemplates from "../emailTemplates.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
@@ -30,7 +33,10 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crm: typeof crm;
   crons: typeof crons;
+  customerEmail: typeof customerEmail;
+  customerEmailData: typeof customerEmailData;
   directus: typeof directus;
+  emailTemplates: typeof emailTemplates;
   healthCheck: typeof healthCheck;
   http: typeof http;
   inbox: typeof inbox;

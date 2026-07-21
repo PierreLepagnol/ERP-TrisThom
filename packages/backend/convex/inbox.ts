@@ -11,43 +11,8 @@ function normalise(text: string) {
     .toLowerCase();
 }
 
-function looksLikeCateringRequest(text: string) {
-  const normalized = normalise(text);
-  const keywords = [
-    "demande de devis",
-    "demande de prix",
-    "devis traiteur",
-    "prestation traiteur",
-    "cocktail",
-    "buffet",
-    "repas d'entreprise",
-    "repas d entreprise",
-    "mariage",
-    "brunch",
-    "plateau repas",
-    "nombre de convives",
-  ];
-  return keywords.some((keyword) => normalized.includes(keyword));
-}
-
 function looksLike1001Traiteur(text: string) {
   return normalise(text).includes("1001traiteur");
-}
-
-function missingInformation(args: {
-  contactEmail?: string;
-}) {
-  const missing = [
-    "Date de l'événement",
-    "Lieu ou adresse",
-    "Nombre de personnes",
-    "Type de prestation",
-    "Budget",
-    "Horaires",
-    "Besoins particuliers",
-  ];
-  if (!args.contactEmail) missing.push("Coordonnées du client");
-  return missing;
 }
 
 function missingInformationForRequest(args: {
@@ -88,6 +53,7 @@ export const recordMessage = internalMutation({
   args: {
     externalId: v.string(),
     messageId: v.optional(v.string()),
+    inReplyTo: v.optional(v.string()),
     senderName: v.optional(v.string()),
     senderEmail: v.optional(v.string()),
     subject: v.optional(v.string()),
@@ -143,6 +109,67 @@ export const recordMessage = internalMutation({
       }
     }
 
+    const threaded = args.inReplyTo
+      ? await ctx.db.query("emailMessages").withIndex("by_messageId", (index) => index.eq("messageId", args.inReplyTo!)).unique()
+      : null;
+    const sameClient = !threaded && args.senderEmail
+      ? (await ctx.db.query("requests").withIndex("by_contactEmail", (index) => index.eq("contactEmail", args.senderEmail!)).order("desc").take(10))
+        .find((request) => !request.archivedAt && !["refuse", "annule"].includes(request.status))
+      : null;
+    const relatedRequestId = threaded?.requestId ?? sameClient?._id;
+    if (relatedRequestId) {
+      const request = await ctx.db.get(relatedRequestId);
+      if (request) {
+        const merged = {
+          contactEmail: parsed.contactEmail ?? request.contactEmail ?? args.senderEmail,
+          contactPhone: parsed.contactPhone ?? request.contactPhone,
+          organizationName: parsed.organizationName ?? request.organizationName,
+          eventDate: parsed.eventDate ?? request.eventDate,
+          eventAddress: parsed.eventAddress ?? request.eventAddress,
+          eventType: parsed.eventType ?? request.eventType,
+          guestCount: parsed.guestCount ?? request.guestCount,
+          specialNeeds: parsed.specialNeeds ?? request.specialNeeds,
+        };
+        await ctx.db.patch(request._id, {
+          contactName: parsed.contactName ?? request.contactName,
+          ...merged,
+          missingInformation: missingInformationForRequest(merged),
+          updatedAt: Date.now(),
+        });
+        await ctx.db.insert("requestHistory", {
+          requestId: request._id,
+          label: "Réponse e-mail reçue : dossier mis à jour",
+          createdAt: Date.now(),
+        });
+        await ctx.db.insert("emailMessages", {
+          requestId: request._id,
+          direction: "inbound",
+          messageId: args.messageId ?? args.externalId,
+          inReplyTo: args.inReplyTo,
+          subject: args.subject,
+          body: args.text ?? "",
+          senderEmail: args.senderEmail,
+          recipientEmail: undefined,
+          sentAt: args.receivedAt ?? Date.now(),
+        });
+        await ctx.db.insert("inboxMessages", {
+          externalId: args.externalId,
+          messageId: args.messageId,
+          senderName: args.senderName,
+          senderEmail: args.senderEmail,
+          subject: args.subject,
+          receivedAt: args.receivedAt,
+          textPreview: args.text?.slice(0, 1_000),
+          attachmentNames: args.attachmentNames.slice(0, 20),
+          hasPdfAttachment: args.hasPdfAttachment,
+          outcome: "created",
+          requestId: request._id,
+          createdAt: Date.now(),
+        });
+        return { outcome: "created" as const, requestId: request._id };
+      }
+    }
+
     const now = Date.now();
     let requestId: Id<"requests"> | undefined;
 
@@ -179,6 +206,17 @@ export const recordMessage = internalMutation({
             ? "E-mail importé à vérifier : demande possible"
             : "Demande reçue par e-mail",
         createdAt: now,
+      });
+      await ctx.db.insert("emailMessages", {
+        requestId,
+        direction: "inbound",
+        messageId: args.messageId ?? args.externalId,
+        inReplyTo: args.inReplyTo,
+        subject: args.subject,
+        body: args.text ?? "",
+        senderEmail: args.senderEmail,
+        recipientEmail: undefined,
+        sentAt: args.receivedAt ?? now,
       });
     }
 

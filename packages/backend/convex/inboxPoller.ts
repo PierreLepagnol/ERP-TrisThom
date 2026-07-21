@@ -91,6 +91,7 @@ export const pollInbox = internalAction({
           const result: { outcome: "created" | "ignored" } = await ctx.runMutation(internal.inbox.recordMessage, {
             externalId,
             messageId: message.messageId,
+            inReplyTo: message.inReplyTo,
             senderName: extracted.contactName || sender?.name || undefined,
             senderEmail: extracted.contactEmail || sender?.address || undefined,
             subject: message.subject?.slice(0, 500),

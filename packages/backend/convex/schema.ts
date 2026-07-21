@@ -99,6 +99,29 @@ export default defineSchema({
     .index("by_externalId", ["externalId"])
     .index("by_requestId", ["requestId"]),
 
+  emailMessages: defineTable({
+    requestId: v.id("requests"),
+    direction: v.union(v.literal("inbound"), v.literal("outbound")),
+    messageId: v.string(),
+    inReplyTo: v.optional(v.string()),
+    subject: v.optional(v.string()),
+    body: v.string(),
+    senderEmail: v.optional(v.string()),
+    recipientEmail: v.optional(v.string()),
+    attachmentNames: v.optional(v.array(v.string())),
+    sentAt: v.number(),
+  })
+    .index("by_messageId", ["messageId"])
+    .index("by_requestId_and_sentAt", ["requestId", "sentAt"]),
+
+  emailTemplates: defineTable({
+    name: v.string(),
+    subject: v.string(),
+    body: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_updatedAt", ["updatedAt"]),
+
   followUpTasks: defineTable({
     requestId: v.id("requests"),
     kind: v.union(v.literal("relance_j3"), v.literal("relance_j7"), v.literal("manuel")),
