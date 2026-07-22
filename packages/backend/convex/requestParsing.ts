@@ -163,11 +163,23 @@ function formValue(document: PositionedPdfDocument, label: string) {
   const header = document.rows.find((row) => normalise(row.text).includes(normalise(label)));
   const x = header && rowLabelX(header, label);
   if (!header || x === undefined) return undefined;
-  const candidates = document.rows
+  const columns = formLabels
+    .map((known) => ({ label: known, x: rowLabelX(header, known) }))
+    .filter((column): column is { label: string; x: number } => column.x !== undefined)
+    .sort((left, right) => left.x - right.x);
+  const columnIndex = columns.findIndex((column) => column.label === label);
+  const previous = columns[columnIndex - 1];
+  const next = columns[columnIndex + 1];
+  const lowerBound = previous ? (previous.x + x) / 2 : x - 5;
+  const upperBound = next ? (x + next.x) / 2 : x + 5;
+  const rowBelow = document.rows
     .filter((row) => row.y > header.y && row.y - header.y < 5)
-    .flatMap((row) => row.fragments.map((fragment) => ({ ...fragment, row })))
-    .filter((fragment) => Math.abs(fragment.x - x) < 3 && !formLabels.some((known) => normalise(fragment.text).includes(normalise(known))));
-  const closest = candidates.sort((left, right) => (left.y - header.y) - (right.y - header.y) || Math.abs(left.x - x) - Math.abs(right.x - x))[0];
+    .sort((left, right) => left.y - right.y)[0];
+  if (!rowBelow) return undefined;
+  const candidates = rowBelow.fragments
+    .filter((fragment) => fragment.x >= lowerBound && fragment.x < upperBound)
+    .filter((fragment) => !formLabels.some((known) => normalise(fragment.text).includes(normalise(known))));
+  const closest = candidates.sort((left, right) => Math.abs(left.x - x) - Math.abs(right.x - x))[0];
   return closest?.text.trim() || undefined;
 }
 

@@ -219,3 +219,25 @@ test("parses six positioned 1001 form layouts without using provider data", () =
     expect(JSON.stringify(parsed)).not.toContain("1001Services");
   }
 });
+
+test("assigns 80 participants to the nearest header column when its x offset exceeds three", () => {
+  const document: PositionedPdfDocument = {
+    rawText: "",
+    rows: [
+      { y: 10, text: "Ville Nombre de participants Nom & prénom internaute", fragments: [
+        { x: 2, y: 10, text: "Ville" },
+        { x: 10.386, y: 10, text: "Nombre de participants" },
+        { x: 20, y: 10, text: "Nom & prénom internaute" },
+      ] },
+      { y: 11, text: "Cergy 80 Martin", fragments: [
+        { x: 2.1, y: 11, text: "Cergy" },
+        { x: 13.493, y: 11, text: "80" },
+        { x: 20.1, y: 11, text: "Martin" },
+      ] },
+    ],
+  };
+  const parsed = parse1001TraiteurForm(document);
+  expect(parsed.guestCount).toBe(80);
+  expect(parsed.eventAddress).toBe("Cergy");
+  expect(parsed.contactName).toBe("Martin");
+});
