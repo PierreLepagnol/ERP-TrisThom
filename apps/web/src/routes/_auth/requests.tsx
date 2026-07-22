@@ -149,6 +149,7 @@ function RequestsPage() {
         organizationName: optionalValue(data, "organizationName"),
         eventType: optionalValue(data, "eventType"),
         eventDate: date ? new Date(`${date}T12:00:00`).getTime() : undefined,
+        eventStartTime: optionalValue(data, "eventStartTime"),
         eventAddress: optionalValue(data, "eventAddress"),
         guestCount: guestCount ? Number(guestCount) : undefined,
         budgetPerPersonCents: budget ? Math.round(Number(budget) * 100) : undefined,
@@ -311,7 +312,7 @@ type PdfAnalysis = {
   parsed: {
     contactName?: string; contactEmail?: string; contactPhone?: string; organizationName?: string;
     eventType?: string; eventDate?: number; eventAddress?: string; guestCount?: number;
-    budgetPerPersonCents?: number; specialNeeds?: string;
+    budgetPerPersonCents?: number; specialNeeds?: string; eventStartTime?: string;
   };
 };
 
@@ -328,6 +329,7 @@ function PdfImportForm({ isSaving, analysis, onImport, onCancel, onCreate }: { i
       <FormField label="Type d’événement"><input name="eventType" defaultValue={parsed.eventType ?? ""} className="input" /></FormField>
       <FormField label="Nombre de convives"><input name="guestCount" type="number" min="1" defaultValue={parsed.guestCount?.toString() ?? ""} className="input" /></FormField>
       <FormField label="Date"><input name="eventDate" type="date" defaultValue={parsed.eventDate ? new Date(parsed.eventDate).toISOString().slice(0, 10) : ""} className="input" /></FormField>
+      <FormField label="Début du créneau"><input name="eventStartTime" type="time" step="1800" defaultValue={parsed.eventStartTime ?? ""} className="input" /></FormField>
       <FormField label="Budget par personne (€)"><input name="budgetPerPerson" type="number" min="0" step="0.01" defaultValue={parsed.budgetPerPersonCents ? (parsed.budgetPerPersonCents / 100).toString() : ""} className="input" /></FormField>
       <FormField label="Lieu / adresse" className="md:col-span-2"><input name="eventAddress" defaultValue={parsed.eventAddress ?? ""} className="input" /></FormField>
       <FormField label="Contraintes / informations complémentaires" className="md:col-span-2"><textarea name="specialNeeds" defaultValue={parsed.specialNeeds ?? ""} className="input min-h-20" /></FormField>

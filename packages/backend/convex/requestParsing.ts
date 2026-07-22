@@ -20,6 +20,8 @@ function clientText(text: string) {
 
 function parseDate(text: string, receivedAt: Date) {
   const normalized = normalise(text);
+  const numeric = normalized.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](20\d{2})\b/);
+  if (numeric) return Date.UTC(Number(numeric[3]), Number(numeric[2]) - 1, Number(numeric[1]));
   const match = normalized.match(/\b(\d{1,2})\s+et\s+\d{1,2}\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)(?:\s+(\d{4}))?\b/)
     ?? normalized.match(/\b(\d{1,2})\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)(?:\s+(\d{4}))?\b/);
   if (!match) return undefined;
@@ -69,7 +71,7 @@ function parseSignature(text: string) {
 }
 
 function parsePhone(text: string) {
-  const match = text.match(/(?:\+33\s?[1-9]|0[1-9])(?:[ .-]?\d{2}){4}\b/);
+  const match = text.match(/(?:\+33\s?[67]|0[67])(?:[ .-]?\d{2}){4}\b/);
   return match?.[0]?.replace(/[.-]/g, " ");
 }
 
@@ -88,10 +90,36 @@ function parse1001Name(text: string) {
   if (!/1001\s*(traiteurs|services)/i.test(text)) return undefined;
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const greetingAt = lines.findIndex((line) => /^(cordialement|bien cordialement)/.test(normalise(line)));
-  if (greetingAt < 0) return undefined;
-  return lines.slice(0, greetingAt).reverse().find((line) =>
+  const signature = greetingAt >= 0 ? lines.slice(greetingAt + 1).find((line) =>
     /^[\p{L}' -]{4,}$/u.test(line) && line.trim().split(/\s+/).length >= 2,
-  );
+  ) : undefined;
+  if (signature) return titleCase(signature);
+  const fallback = fieldValue(text, "Nom\\s*(?:&|et)\\s*pr[ée]nom\\s*(?:internaute)?");
+  return fallback ? titleCase(fallback) : undefined;
+}
+
+function without1001Footer(text: string) {
+  const lines = text.split(/\r?\n/);
+  const footerAt = lines.findIndex((line) => /1001\s*traiteurs\s*[–-]\s*rond-point|1001services\s+est|r\s*c\s*s\s*de\s*creteil|siret|ape\s*6312|tva\s*intra|sas\s+au\s+capital/i.test(normalise(line)));
+  return (footerAt >= 0 ? lines.slice(0, footerAt) : lines).join("\n");
+}
+
+function fieldValue(text: string, label: string) {
+  const match = text.match(new RegExp(`${label}\\s*:\\s*([^\\n]+)`, "i"));
+  const value = match?.[1]?.trim();
+  return value && !/^n\.?c\.?$/i.test(value) ? value : undefined;
+}
+
+function parseTime(text: string) {
+  const value = fieldValue(text, "(?:horaire|heure)\\s*(?:de\\s*)?(?:d[ée]but|arriv[ée])")
+    ?? text.match(/(?:à partir de|debut)\s*(\d{1,2}\s*(?::|h)\s*\d{2})/i)?.[1];
+  const match = value?.match(/\b(\d{1,2})\s*(?::|h)\s*(\d{2})\b/);
+  return match && Number(match[1]) < 24 && Number(match[2]) < 60 ? `${match[1].padStart(2, "0")}:${match[2]}` : undefined;
+}
+
+function parse1001Preferences(text: string) {
+  const selected = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => /plateaux?\s*(?:repas|\/|box)|afro[ -]?carib|gastronomique/i.test(normalise(line)));
+  return selected.length ? selected.join(" · ") : undefined;
 }
 
 function parseOrganization(text: string) {
@@ -110,6 +138,7 @@ export type ParsedEmailRequest = {
   guestCount?: number;
   eventType?: string;
   specialNeeds?: string;
+  eventStartTime?: string;
   budgetPerPersonCents?: number;
 };
 
@@ -127,7 +156,9 @@ export function triageInboxMessage(text: string) {
 }
 
 export function parseEmailRequest(text: string, receivedAt = new Date()): ParsedEmailRequest {
-  const client = clientText(text);
+  const rawClient = clientText(text);
+  const is1001 = /1001\s*(traiteurs|services)/i.test(rawClient);
+  const client = is1001 ? without1001Footer(rawClient) : rawClient;
   const normalized = normalise(client);
   const guestMatch = normalized.match(/\b(\d{1,4})\s*(?:personnes|convives|invites)\b/);
   const cold = /\b(?:froid|froide|froids|froides)\b/.test(normalized);
@@ -139,16 +170,21 @@ export function parseEmailRequest(text: string, receivedAt = new Date()): Parsed
     : /\bplateaux?\b/.test(normalized) ? `Plateaux-repas${cold ? " froids" : ""}`
     : undefined;
   const forwarded = parseForwardedSender(client);
+  const mobile = fieldValue(client, "T[ée]l[ée]phone\\s+mobile");
+  const labelledEmail = fieldValue(client, "(?:e-?mail|email)");
+  const city = fieldValue(client, "Ville") ?? fieldValue(client, "Lieu");
+  const preferences = is1001 ? parse1001Preferences(client) : undefined;
   return {
     contactName: parse1001Name(client) ?? parseSignature(client) ?? forwarded.contactName,
-    contactEmail: forwarded.contactEmail ?? parseEmail(client),
-    contactPhone: parsePhone(client),
-    organizationName: parseOrganization(client),
+    contactEmail: labelledEmail ?? forwarded.contactEmail ?? parseEmail(client),
+    contactPhone: parsePhone(mobile ?? client),
+    organizationName: is1001 ? undefined : parseOrganization(client),
     eventDate: parseDate(client, receivedAt),
-    eventAddress: parseAddress(client),
+    eventAddress: city ?? parseAddress(client),
     guestCount: guestMatch ? Number(guestMatch[1]) : undefined,
     eventType,
     budgetPerPersonCents: parseBudgetPerPerson(client),
-    specialNeeds: cold ? "Proposition froide souhaitée" : undefined,
+    specialNeeds: preferences ?? (cold ? "Proposition froide souhaitée" : undefined),
+    eventStartTime: parseTime(client),
   };
 }

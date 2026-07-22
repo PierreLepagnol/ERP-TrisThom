@@ -13,7 +13,7 @@ async function extractText(content: Buffer) {
   const parser = new PDFParser(null, true);
   return await new Promise<string>((resolve, reject) => {
     parser.once("pdfParser_dataReady", () => {
-      const text = parser.getRawTextContent().replace(/\s+/g, " ").trim().slice(0, 20_000);
+      const text = parser.getRawTextContent().replace(/[^\S\r\n]+/g, " ").replace(/\r\n?/g, "\n").trim().slice(0, 20_000);
       parser.destroy();
       resolve(text);
     });

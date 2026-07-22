@@ -86,3 +86,42 @@ morgane.martin83@orange.fr
     budgetPerPersonCents: 2000,
   });
 });
+
+test("reads 1001Traiteur client fields without using its legal footer", () => {
+  const text = `Demande de devis 1001 Traiteurs
+Type d'événement : Anniversaire
+Nom & prénom internaute : Alice Exemple
+E-mail : alice@example.test
+Téléphone mobile : +33 6 12 34 56 78
+Ville : Ville-Test
+Date : 12/09/2026
+Horaire de début : 13h30
+10 convives
+Budget : 50 € par personne
+Informations complémentaires
+Plateaux repas/box
+Afro-caribéen
+Gastronomique
+Cordialement
+Alice Exemple
+1001 Traiteurs – Rond-point européen
+1001Services est une société du Groupe 1001Salles
+SAS au capital de 45.000 €
+RCS de Créteil - SIRET 123 456 789 00012 - APE 6312 - TVA Intra`;
+
+  expect(parseEmailRequest(text)).toMatchObject({
+    contactName: "Alice Exemple",
+    contactEmail: "alice@example.test",
+    contactPhone: "+33 6 12 34 56 78",
+    organizationName: undefined,
+    eventType: "Anniversaire",
+    eventDate: Date.UTC(2026, 8, 12),
+    eventAddress: "Ville-Test",
+    eventStartTime: "13:30",
+    guestCount: 10,
+    budgetPerPersonCents: 5000,
+  });
+  expect(parseEmailRequest(text).specialNeeds).toContain("Plateaux repas/box");
+  expect(parseEmailRequest(text).specialNeeds).toContain("Afro-caribéen");
+  expect(parseEmailRequest(text).specialNeeds).toContain("Gastronomique");
+});
