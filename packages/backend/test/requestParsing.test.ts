@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { isCateringRequest, parseEmailRequest, triageInboxMessage } from "../convex/requestParsing";
+import { isCateringRequest, parse1001TraiteurPdf, parseEmailRequest, triageInboxMessage } from "../convex/requestParsing";
 
 test("extracts the useful information from a French catering request", () => {
   const details = parseEmailRequest(`Bonjour je souhaite vous commandez un devis pour un cocktail le 11 octobre
@@ -124,4 +124,48 @@ RCS de Créteil - SIRET 123 456 789 00012 - APE 6312 - TVA Intra`;
   expect(parseEmailRequest(text).specialNeeds).toContain("Plateaux repas/box");
   expect(parseEmailRequest(text).specialNeeds).toContain("Afro-caribéen");
   expect(parseEmailRequest(text).specialNeeds).toContain("Gastronomique");
+});
+
+test("reads labelled 1001Traiteur fields when the legal footer appears first", () => {
+  const text = `1001Services est une société du Groupe 1001Salles
+SAS au capital de 45.000 € - RCS de Créteil - SIRET 123 456 789 - TVA Intra
+Téléphone mobile
++33 6 11 22 33 44
+Nom & prénom internaute
+DURAND
+Adresse email
+emilien@example.test
+Date de l'événement
+05/09/2026
+Ville
+Saint-Denis
+Nombre de participants
+80
+Budget
+30 €
+MESSAGE
+Bonjour, nous organisons un événement de type « Anniversaire » le 5 septembre 2026 à partir de 18:00.
+Côté formule, nous pensons à : Cocktail
+Nos préférences culinaires : Barbecue et grillades et Cuisine régionale
+Cordialement
+Emilien DURAND
+Page (0) Break`;
+
+  const parsed = parse1001TraiteurPdf(text);
+  expect(parsed).toMatchObject({
+    contactName: "Emilien Durand",
+    contactEmail: "emilien@example.test",
+    contactPhone: "+33 6 11 22 33 44",
+    organizationName: undefined,
+    eventType: "Anniversaire",
+    eventDate: Date.UTC(2026, 8, 5),
+    eventAddress: "Saint-Denis",
+    guestCount: 80,
+    budgetPerPersonCents: 3000,
+    eventStartTime: "18:00",
+  });
+  expect(parsed.message).not.toContain("SIRET");
+  expect(parsed.specialNeeds).toContain("Cocktail");
+  expect(parsed.specialNeeds).toContain("Barbecue et grillades");
+  expect(parsed.specialNeeds).toContain("Cuisine régionale");
 });

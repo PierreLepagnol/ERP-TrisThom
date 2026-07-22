@@ -154,7 +154,7 @@ function RequestsPage() {
         guestCount: guestCount ? Number(guestCount) : undefined,
         budgetPerPersonCents: budget ? Math.round(Number(budget) * 100) : undefined,
         specialNeeds: optionalValue(data, "specialNeeds"),
-        message: `PDF source : ${pdfAnalysis.filename}\n\n${pdfAnalysis.text}`.slice(0, 20_000),
+        message: optionalValue(data, "message"),
       });
       setPdfAnalysis(null);
       setIsCreating(false);
@@ -312,7 +312,7 @@ type PdfAnalysis = {
   parsed: {
     contactName?: string; contactEmail?: string; contactPhone?: string; organizationName?: string;
     eventType?: string; eventDate?: number; eventAddress?: string; guestCount?: number;
-    budgetPerPersonCents?: number; specialNeeds?: string; eventStartTime?: string;
+    budgetPerPersonCents?: number; specialNeeds?: string; eventStartTime?: string; message?: string;
   };
 };
 
@@ -333,6 +333,7 @@ function PdfImportForm({ isSaving, analysis, onImport, onCancel, onCreate }: { i
       <FormField label="Budget par personne (€)"><input name="budgetPerPerson" type="number" min="0" step="0.01" defaultValue={parsed.budgetPerPersonCents ? (parsed.budgetPerPersonCents / 100).toString() : ""} className="input" /></FormField>
       <FormField label="Lieu / adresse" className="md:col-span-2"><input name="eventAddress" defaultValue={parsed.eventAddress ?? ""} className="input" /></FormField>
       <FormField label="Contraintes / informations complémentaires" className="md:col-span-2"><textarea name="specialNeeds" defaultValue={parsed.specialNeeds ?? ""} className="input min-h-20" /></FormField>
+      <FormField label="Message du client" className="md:col-span-2"><textarea name="message" defaultValue={parsed.message ?? ""} className="input min-h-32" /></FormField>
       <details className="md:col-span-2 rounded-md border border-stone-200 p-3 text-sm"><summary className="cursor-pointer font-bold">Voir le texte lu dans le PDF</summary><p className="mt-3 whitespace-pre-wrap text-stone-600">{analysis.text}</p></details>
       <div className="md:col-span-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={isSaving} className="px-4 py-2.5 text-sm font-bold">Annuler l’import</button><button disabled={isSaving} className="rounded-md bg-[#650d1c] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60">{isSaving ? "Création…" : "Créer la demande"}</button></div>
     </form>;

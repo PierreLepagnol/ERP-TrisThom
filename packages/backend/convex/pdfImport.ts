@@ -5,7 +5,7 @@ import { v } from "convex/values";
 
 import { authComponent } from "./auth";
 import { action } from "./_generated/server";
-import { parseEmailRequest } from "./requestParsing";
+import { parse1001TraiteurPdf } from "./requestParsing";
 
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
 
@@ -34,7 +34,7 @@ export const import1001Pdf = action({
     if (!content.length || content.length > MAX_PDF_BYTES) throw new Error("Le PDF doit faire moins de 5 Mo.");
     const text = await extractText(content);
     if (!text) throw new Error("Aucun texte n’a été trouvé dans ce PDF.");
-    const parsed = parseEmailRequest(text, new Date());
+    const parsed = parse1001TraiteurPdf(text, new Date());
     return { filename: args.filename, text, parsed };
   },
 });

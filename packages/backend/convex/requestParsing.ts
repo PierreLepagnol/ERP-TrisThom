@@ -140,7 +140,58 @@ export type ParsedEmailRequest = {
   specialNeeds?: string;
   eventStartTime?: string;
   budgetPerPersonCents?: number;
+  message?: string;
 };
+
+function is1001FooterLine(line: string) {
+  return /1001\s*traiteurs\s*[–-]\s*rond-point|1001services|1001salles|1001traiteurs\.com|sas\s+au\s+capital|r\s*c\s*s|siret|ape\s*6312|tva\s*intra|maurice\s+grandcoing|94200\s+ivry|page\s*\(\d+\)\s*break/i.test(normalise(line));
+}
+
+function pdfLabelValue(lines: string[], label: string) {
+  const wanted = normalise(label);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    const at = normalise(line).indexOf(wanted);
+    if (at < 0) continue;
+    const remainder = line.slice(at + label.length).replace(/^\s*[:–-]?\s*/, "").trim();
+    if (remainder) return remainder;
+    return lines.slice(index + 1, index + 4).find((candidate) => candidate && !/^(date|ville|budget|nombre|nom|adresse|telephone|téléphone|message)\b/i.test(candidate));
+  }
+  return undefined;
+}
+
+/** Dedicated parser for 1001Traiteur PDFs. The footer is discarded line by
+ * line because pdf2json can return it before the visible client section. */
+export function parse1001TraiteurPdf(text: string, receivedAt = new Date()): ParsedEmailRequest {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !is1001FooterLine(line));
+  const messageAt = lines.findIndex((line) => normalise(line) === "message");
+  const greetingAt = lines.findIndex((line, index) => index > messageAt && /^(cordialement|bien cordialement)/.test(normalise(line)));
+  const message = messageAt >= 0 ? lines.slice(messageAt + 1, greetingAt >= 0 ? greetingAt + 2 : undefined).join("\n").trim() || undefined : undefined;
+  const signature = greetingAt >= 0 ? lines.slice(greetingAt + 1).find((line) => /^[\p{L}' -]{4,}$/u.test(line) && line.split(/\s+/).length >= 2) : undefined;
+  const name = signature ?? pdfLabelValue(lines, "Nom & prénom internaute");
+  const emailCandidate = pdfLabelValue(lines, "Adresse email");
+  const phoneCandidate = pdfLabelValue(lines, "Téléphone mobile");
+  const date = pdfLabelValue(lines, "Date de l'événement") ?? pdfLabelValue(lines, "Date de l’événement");
+  const participants = pdfLabelValue(lines, "Nombre de participants");
+  const budget = pdfLabelValue(lines, "Budget");
+  const eventText = message ?? lines.join("\n");
+  const preferences = [eventText.match(/Côté formule[^\n]*/i)?.[0], eventText.match(/Nos préférences culinaires[^\n]*/i)?.[0]].filter(Boolean).join(" · ") || undefined;
+  const number = (value?: string) => value?.match(/\d{1,4}(?:[,.]\d{1,2})?/)?.[0];
+  return {
+    contactName: name ? titleCase(name) : undefined,
+    contactEmail: emailCandidate && !/@(?:1001traiteurs|1001services|1001salles)/i.test(emailCandidate) ? parseEmail(emailCandidate) : undefined,
+    contactPhone: phoneCandidate && !/^n\.?c\.?$/i.test(phoneCandidate) ? parsePhone(phoneCandidate) : undefined,
+    organizationName: undefined,
+    eventDate: date ? parseDate(date, receivedAt) : undefined,
+    eventAddress: pdfLabelValue(lines, "Ville"),
+    guestCount: number(participants) ? Number(number(participants)) : undefined,
+    budgetPerPersonCents: number(budget) ? Math.round(Number(number(budget)!.replace(",", ".")) * 100) : undefined,
+    eventType: /mariage/i.test(eventText) ? "Mariage" : /anniversaire/i.test(eventText) ? "Anniversaire" : /événement professionnel/i.test(eventText) ? "Événement professionnel" : undefined,
+    eventStartTime: parseTime(eventText),
+    specialNeeds: preferences,
+    message,
+  };
+}
 
 export function isCateringRequest(text: string) {
   const normalized = normalise(clientText(text));
