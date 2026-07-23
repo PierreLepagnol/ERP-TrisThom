@@ -19,7 +19,9 @@ http.route({
       bodyText: await request.text(),
       now: Date.now,
       ingest: async (args) => await ctx.runMutation(internal.directus.ingestRequest, args),
-      audit: async (entry) => await ctx.runMutation(internal.directus.recordWebhookAudit, entry),
+      audit: async (entry) => {
+        await ctx.runMutation(internal.directus.recordWebhookAudit, entry);
+      },
     });
     return new Response(result.status === 204 ? null : result.code, { status: result.status });
   }),
