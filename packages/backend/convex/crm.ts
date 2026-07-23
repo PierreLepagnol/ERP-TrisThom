@@ -1161,6 +1161,53 @@ export const deleteCatalogItem = mutation({
   },
 });
 
+export const listServicePurchases = query({
+  args: { requestId: v.id("requests") },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    await getRequestOrThrow(ctx, args.requestId);
+    return await ctx.db.query("servicePurchases")
+      .withIndex("by_requestId", (index) => index.eq("requestId", args.requestId))
+      .order("asc")
+      .collect();
+  },
+});
+
+export const createServicePurchase = mutation({
+  args: { requestId: v.id("requests"), product: v.string(), quantity: v.number(), unit: v.string(), supplier: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    const request = await getRequestOrThrow(ctx, args.requestId);
+    if (request.status !== "accepte") throw new Error("Les achats sont réservés aux prestations confirmées.");
+    if (!args.product.trim() || !args.unit.trim() || args.quantity <= 0) throw new Error("Produit, quantité et unité sont obligatoires.");
+    const now = Date.now();
+    return await ctx.db.insert("servicePurchases", { ...args, product: args.product.trim(), unit: args.unit.trim(), supplier: args.supplier?.trim() || undefined, purchased: false, createdAt: now, updatedAt: now });
+  },
+});
+
+export const updateServicePurchase = mutation({
+  args: { requestId: v.id("requests"), purchaseId: v.id("servicePurchases"), product: v.string(), quantity: v.number(), unit: v.string(), supplier: v.optional(v.string()), purchased: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    await getRequestOrThrow(ctx, args.requestId);
+    const purchase = await ctx.db.get(args.purchaseId);
+    if (!purchase || purchase.requestId !== args.requestId) throw new Error("Achat introuvable.");
+    if (!args.product.trim() || !args.unit.trim() || args.quantity <= 0) throw new Error("Produit, quantité et unité sont obligatoires.");
+    await ctx.db.patch(args.purchaseId, { product: args.product.trim(), quantity: args.quantity, unit: args.unit.trim(), supplier: args.supplier?.trim() || undefined, purchased: args.purchased, updatedAt: Date.now() });
+  },
+});
+
+export const deleteServicePurchase = mutation({
+  args: { requestId: v.id("requests"), purchaseId: v.id("servicePurchases") },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    await getRequestOrThrow(ctx, args.requestId);
+    const purchase = await ctx.db.get(args.purchaseId);
+    if (!purchase || purchase.requestId !== args.requestId) throw new Error("Achat introuvable.");
+    await ctx.db.delete(args.purchaseId);
+  },
+});
+
 const demoContactNames = new Set([
   "Camille Robert", "Lina Benali", "Nicolas Perrin", "Élodie Marchal",
   "Hélène Martin", "Sophie Leroy", "Justine et Marc Delorme", "Claire Dumas",

@@ -2,7 +2,7 @@
 
 Fais les étapes dans l'ordre. Copie les commandes sans les modifier, sauf quand le guide te le demande.
 
-> **Secret :** ne partage jamais le mot de passe e-mail ni `BETTER_AUTH_SECRET`. Ne les ajoute jamais dans Git.
+> **Secret :** ne partage jamais les mots de passe, `BETTER_AUTH_SECRET` ni `DIRECTUS_WEBHOOK_SECRET`. Ne les ajoute jamais dans Git.
 
 **Projet déjà installé ?** Va directement à l'étape 3 ou 4.
 
@@ -103,6 +103,7 @@ Vérifie les fins d'adresse :
 
 - `VITE_CONVEX_URL` finit par `.cloud` ;
 - `VITE_CONVEX_SITE_URL` finit par `.site`.
+- Les deux adresses portent le **même nom de déploiement** : l'URL `.cloud` utilisée par le site et l'URL `.site` du webhook doivent viser le même environnement Convex.
 
 Enregistre le fichier.
 
@@ -169,6 +170,22 @@ SMTP_USER
 ```
 
 > Utilise toujours `--names-only`. Sans cette option, les secrets s'affichent.
+
+### 5.4 Configurer le webhook Directus
+
+Crée un secret aléatoire, puis configure-le sans l'afficher :
+
+```bash
+bun -e "console.log(crypto.randomUUID()+crypto.randomUUID())" | bunx convex env set DIRECTUS_WEBHOOK_SECRET
+```
+
+Dans le Flow Directus de création de `quote_requests`, envoie un `POST` vers l'URL `.site` du même déploiement et ajoute l'en-tête `x-tristhom-webhook-secret` avec exactement cette valeur. Ne colle jamais cette valeur dans un fichier `.env` versionné, dans le code ou dans un ticket.
+
+Vérifie seulement la présence de la variable, jamais sa valeur :
+
+```bash
+bunx convex env list --names-only
+```
 
 ## 6. Lancer et tester
 
@@ -290,6 +307,14 @@ bunx convex env --prod set SMTP_USER connexion@bouilloncomptoir.fr
 bunx convex env --prod set SMTP_FROM "Bouillon Comptoir <connexion@bouilloncomptoir.fr>"
 bunx convex env --prod set SMTP_PASSWORD
 ```
+
+Configure un secret Directus distinct en production :
+
+```bash
+bun -e "console.log(crypto.randomUUID()+crypto.randomUUID())" | bunx convex env --prod set DIRECTUS_WEBHOOK_SECRET
+```
+
+Le Flow Directus de production doit appeler `https://<meme-deploiement>.convex.site/webhooks/directus/quote-request`, tandis que le site utilise `https://<meme-deploiement>.convex.cloud`. Les deux sous-domaines doivent être issus du même déploiement de production.
 
 Vérifie les noms :
 

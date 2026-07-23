@@ -39,17 +39,40 @@ export const ingestRequest = internalMutation({
       )
       .unique();
 
-    if (existingRequest) return existingRequest._id;
+    if (existingRequest) return { requestId: existingRequest._id, created: false };
 
     const now = Date.now();
     const requestMissingInformation = missingInformation(args);
-    return await ctx.db.insert("requests", {
+    const requestId = await ctx.db.insert("requests", {
       ...args,
       source: "directus",
       status: "nouveau",
       missingInformation: requestMissingInformation,
       createdAt: now,
       updatedAt: now,
+    });
+    await ctx.db.insert("requestHistory", {
+      requestId,
+      label: "Demande reçue depuis le site",
+      createdAt: now,
+    });
+    return { requestId, created: true };
+  },
+});
+
+export const recordWebhookAudit = internalMutation({
+  args: {
+    receivedAt: v.number(),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+    directusItemId: v.optional(v.string()),
+    statusCode: v.number(),
+    code: v.string(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("webhookAuditLogs", {
+      webhook: "directus_quote_request",
+      ...args,
     });
   },
 });

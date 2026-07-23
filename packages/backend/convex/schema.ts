@@ -82,6 +82,18 @@ export default defineSchema({
     .index("by_contactEmail", ["contactEmail"])
     .index("by_source_and_externalSourceId", ["source", "externalSourceId"]),
 
+  webhookAuditLogs: defineTable({
+    webhook: v.literal("directus_quote_request"),
+    receivedAt: v.number(),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+    directusItemId: v.optional(v.string()),
+    statusCode: v.number(),
+    code: v.string(),
+    reason: v.optional(v.string()),
+  })
+    .index("by_webhook_and_receivedAt", ["webhook", "receivedAt"])
+    .index("by_outcome_and_receivedAt", ["outcome", "receivedAt"]),
+
   inboxMessages: defineTable({
     externalId: v.string(),
     messageId: v.optional(v.string()),
@@ -132,6 +144,17 @@ export default defineSchema({
   })
     .index("by_requestId", ["requestId"])
     .index("by_completedAt_and_dueAt", ["completedAt", "dueAt"]),
+
+  servicePurchases: defineTable({
+    requestId: v.id("requests"),
+    product: v.string(),
+    quantity: v.number(),
+    unit: v.string(),
+    supplier: v.optional(v.string()),
+    purchased: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_requestId", ["requestId"]),
 
   requestNotes: defineTable({
     requestId: v.id("requests"),
