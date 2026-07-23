@@ -165,7 +165,7 @@ function formValue(document: PositionedPdfDocument, label: string) {
   if (!header || x === undefined) return undefined;
   const columns = formLabels
     .map((known) => ({ label: known, x: rowLabelX(header, known) }))
-    .filter((column): column is { label: string; x: number } => column.x !== undefined)
+    .filter((column): column is { label: (typeof formLabels)[number]; x: number } => column.x !== undefined)
     .sort((left, right) => left.x - right.x);
   const columnIndex = columns.findIndex((column) => column.label === label);
   const previous = columns[columnIndex - 1];

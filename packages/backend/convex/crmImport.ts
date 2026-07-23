@@ -8,7 +8,7 @@ const record = v.object({ legacyId: v.string(), externalSourceId: v.string(), so
 const normalize = (value: string) => value === "a_qualifier" ? "nouveau" : value === "qualifie" ? "devis_a_preparer" : value === "relance" ? "devis_envoye" : value;
 const noonUtc = (date?: string) => date ? Date.parse(`${date}T12:00:00.000Z`) : undefined;
 
-export const importBatch = action({ args: { secret: v.string(), records: v.array(record), dryRun: v.boolean() }, handler: async (ctx, args) => {
+export const importBatch = action({ args: { secret: v.string(), records: v.array(record), dryRun: v.boolean() }, handler: async (ctx, args): Promise<unknown> => {
   if (!env.CRM_IMPORT_SECRET || args.secret !== env.CRM_IMPORT_SECRET) throw new Error("Import non autorisé.");
   return await ctx.runMutation(internal.crmImport.writeBatch, { records: args.records, dryRun: args.dryRun });
 } });
