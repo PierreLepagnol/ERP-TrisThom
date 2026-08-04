@@ -33,11 +33,22 @@ export async function handleDirectusQuoteRequest({ expectedSecret, requestSecret
   if (!expectedSecret) return await failure(audit, { receivedAt, statusCode: 503, code: "secret_not_configured", reason: "DIRECTUS_WEBHOOK_SECRET is not configured" });
   if (requestSecret !== expectedSecret) return await failure(audit, { receivedAt, statusCode: 401, code: "invalid_secret", reason: "Webhook secret does not match" });
 
-  let body: unknown;
-  try {
-    body = JSON.parse(bodyText);
-  } catch {
+  const parsedBody = parseJsonWithControlCharacterFallback(bodyText);
+  if (!parsedBody.parsed) {
     return await failure(audit, { receivedAt, statusCode: 400, code: "invalid_json", reason: "Request body is not valid JSON" });
+  }
+
+  const parsedInnerBody = typeof parsedBody.value === "string"
+    ? parseJsonWithControlCharacterFallback(parsedBody.value)
+    : undefined;
+  if (parsedInnerBody && !parsedInnerBody.parsed) {
+    return await failure(audit, { receivedAt, statusCode: 400, code: "invalid_json", reason: "Request body is not valid JSON" });
+  }
+
+  const body = parsedInnerBody?.value ?? parsedBody.value;
+
+  if (!isRecord(body)) {
+    return await failure(audit, { receivedAt, statusCode: 400, code: "missing_directus_item_id", reason: "No Directus item id was found" });
   }
 
   const request = parseDirectusQuoteRequest(body);
@@ -58,6 +69,54 @@ export async function handleDirectusQuoteRequest({ expectedSecret, requestSecret
 async function failure(audit: Dependencies["audit"], entry: Omit<WebhookAudit, "outcome">) {
   await audit({ ...entry, outcome: "failure" });
   return { status: entry.statusCode, code: entry.code };
+}
+
+function parseJsonWithControlCharacterFallback(text: string): { parsed: true; value: unknown } | { parsed: false } {
+  try {
+    return { parsed: true, value: JSON.parse(text) };
+  } catch {
+    const escapedText = escapeRawControlCharactersInJsonStrings(text);
+    if (!escapedText) return { parsed: false };
+    try {
+      return { parsed: true, value: JSON.parse(escapedText) };
+    } catch {
+      return { parsed: false };
+    }
+  }
+}
+
+function escapeRawControlCharactersInJsonStrings(text: string) {
+  let escaped = false;
+  let inString = false;
+  let isEscaped = false;
+  let result = "";
+
+  for (const character of text) {
+    if (inString && !isEscaped) {
+      if (character === "\n") {
+        result += "\\n";
+        escaped = true;
+        continue;
+      }
+      if (character === "\r") {
+        result += "\\r";
+        escaped = true;
+        continue;
+      }
+      if (character === "\t") {
+        result += "\\t";
+        escaped = true;
+        continue;
+      }
+    }
+
+    result += character;
+    if (character === '"' && !isEscaped) inString = !inString;
+    isEscaped = character === "\\" && !isEscaped;
+    if (character !== "\\") isEscaped = false;
+  }
+
+  return escaped ? result : undefined;
 }
 
 export function parseDirectusQuoteRequest(body: unknown): DirectusRequest | undefined {

@@ -52,6 +52,39 @@ test("accepts the Directus Flow envelope and creates exactly one request on repl
   expect(app.audits.map((audit) => audit.code)).toEqual(["created", "replayed"]);
 });
 
+test("accepts a normal JSON Directus payload and uses its item id", async () => {
+  const app = harness({ bodyText: JSON.stringify({ payload: { id: "directus-normal", name: "Normal payload" } }) });
+  expect(await app.run()).toEqual({ status: 204, code: "created" });
+  expect(app.requests.get("directus-normal")?.externalSourceId).toBe("directus-normal");
+});
+
+test("accepts a double-encoded JSON Directus payload and uses its item id", async () => {
+  const payload = { payload: { id: "directus-double-encoded", name: "Double encoded payload" } };
+  const app = harness({ bodyText: JSON.stringify(JSON.stringify(payload)) });
+  expect(await app.run()).toEqual({ status: 204, code: "created" });
+  expect(app.requests.get("directus-double-encoded")?.externalSourceId).toBe("directus-double-encoded");
+});
+
+test("accepts a Directus message with a raw newline inside its JSON string", async () => {
+  const app = harness({ bodyText: `{
+    "id": "50",
+    "name": "cyril ledrappier",
+    "email": "cyriltennis95@gmail.com",
+    "phone": "0651109278",
+    "format": "buffet",
+    "guest_count": "80",
+    "event_date": "2026-11-28",
+    "event_address": "28 rue de la bonne entente",
+    "message": "Le dessert est déjà acté, donc buffet entrées et plats chaud seulement.
+Plus de détails, n' hésitez pas."
+  }` });
+
+  expect(await app.run()).toEqual({ status: 204, code: "created" });
+  const request = app.requests.get("50");
+  expect(request?.externalSourceId).toBe("50");
+  expect(request?.message).toBe("Le dessert est déjà acté, donc buffet entrées et plats chaud seulement.\nPlus de détails, n' hésitez pas.");
+});
+
 test("accepts Directus records sent directly and uses key when payload has no id", async () => {
   const direct = harness({ bodyText: JSON.stringify({ id: 75, name: "Direct record" }) });
   await direct.run();
