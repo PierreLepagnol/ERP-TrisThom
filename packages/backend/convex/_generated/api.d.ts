@@ -15,6 +15,7 @@ import type * as crons from "../crons.js";
 import type * as customerEmail from "../customerEmail.js";
 import type * as customerEmailData from "../customerEmailData.js";
 import type * as directus from "../directus.js";
+import type * as directusSync from "../directusSync.js";
 import type * as directusWebhook from "../directusWebhook.js";
 import type * as emailTemplates from "../emailTemplates.js";
 import type * as healthCheck from "../healthCheck.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   customerEmail: typeof customerEmail;
   customerEmailData: typeof customerEmailData;
   directus: typeof directus;
+  directusSync: typeof directusSync;
   directusWebhook: typeof directusWebhook;
   emailTemplates: typeof emailTemplates;
   healthCheck: typeof healthCheck;

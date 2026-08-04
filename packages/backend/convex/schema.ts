@@ -94,6 +94,17 @@ export default defineSchema({
     .index("by_webhook_and_receivedAt", ["webhook", "receivedAt"])
     .index("by_outcome_and_receivedAt", ["outcome", "receivedAt"]),
 
+  directusSyncLogs: defineTable({
+    receivedAt: v.number(),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+    examined: v.number(),
+    imported: v.number(),
+    invalid: v.number(),
+    code: v.string(),
+    statusCode: v.optional(v.number()),
+    lastDirectusItemId: v.optional(v.string()),
+  }).index("by_receivedAt", ["receivedAt"]),
+
   inboxMessages: defineTable({
     externalId: v.string(),
     messageId: v.optional(v.string()),

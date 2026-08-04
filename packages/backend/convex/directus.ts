@@ -76,3 +76,19 @@ export const recordWebhookAudit = internalMutation({
     });
   },
 });
+
+export const recordSyncAudit = internalMutation({
+  args: {
+    receivedAt: v.number(),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+    examined: v.number(),
+    imported: v.number(),
+    invalid: v.number(),
+    code: v.string(),
+    statusCode: v.optional(v.number()),
+    lastDirectusItemId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("directusSyncLogs", args);
+  },
+});

@@ -27,6 +27,8 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly BETTER_AUTH_SECRET: string;
   readonly CRM_IMPORT_SECRET: string | undefined;
+  readonly DIRECTUS_BASE_URL: string | undefined;
+  readonly DIRECTUS_STATIC_TOKEN: string | undefined;
   readonly DIRECTUS_WEBHOOK_SECRET: string | undefined;
   readonly IMAP_HOST: string;
   readonly IMAP_PORT: string;
