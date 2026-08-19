@@ -175,6 +175,7 @@ export type LocalRequest = {
   acceptedAt?: number;
   handledAt?: number;
   archivedAt?: number;
+  deletedAt?: number;
   followUps: LocalFollowUp[];
   notes: LocalNote[];
   history: LocalHistoryEntry[];
@@ -263,6 +264,7 @@ export type LocalCrm = {
   completeFollowUp: (requestId: string, followUpId: string) => Promise<void>;
   archiveRequest: (requestId: string) => Promise<void>;
   restoreRequest: (requestId: string) => Promise<void>;
+  deleteRequest: (requestId: string) => Promise<void>;
   resetDemoData: () => Promise<void>;
 };
 
@@ -1761,6 +1763,16 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       ),
     );
   }, []);
+  const deleteRequest = useCallback(async (requestId: string) => {
+    const now = Date.now();
+    setRequests((current) =>
+      current.map((item) =>
+        item._id !== requestId || item.deletedAt
+          ? item
+          : { ...item, deletedAt: now, updatedAt: now },
+      ),
+    );
+  }, []);
   const resetDemoData = useCallback(async () => {
     const demoRequests = createDemoRequests();
     const demoCatalog = cloneDefaultCatalog();
@@ -1778,8 +1790,9 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<LocalCrm>(() => {
     const now = Date.now(),
-      visibleRequests = requests.filter((request) => !request.archivedAt),
-      archivedRequests = requests.filter((request) => request.archivedAt),
+      nonDeletedRequests = requests.filter((request) => !request.deletedAt),
+      visibleRequests = nonDeletedRequests.filter((request) => !request.archivedAt),
+      archivedRequests = nonDeletedRequests.filter((request) => request.archivedAt),
       active = visibleRequests.filter((request) =>
         activeRequestStatuses.includes(request.status),
       ),
@@ -1788,7 +1801,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       ),
       accepted = decided.filter((request) => request.status === "accepte");
     const clientMap = new Map<string, LocalCrm["clients"][number]>();
-    for (const request of requests) {
+    for (const request of nonDeletedRequests) {
       const key =
           request.contactEmail?.toLowerCase() ??
           request.contactPhone ??
@@ -1835,6 +1848,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       completeFollowUp,
       archiveRequest,
       restoreRequest,
+      deleteRequest,
       resetDemoData,
       dashboard: {
         metrics: {
@@ -1893,6 +1907,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     createQuoteVersion,
     createRequest,
     deleteCatalogItem,
+    deleteRequest,
     markHandled,
     markQuoteSent,
     qualifyRequest,

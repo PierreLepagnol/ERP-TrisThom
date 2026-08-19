@@ -73,6 +73,7 @@ export default defineSchema({
     ),
     googleCalendarEventId: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

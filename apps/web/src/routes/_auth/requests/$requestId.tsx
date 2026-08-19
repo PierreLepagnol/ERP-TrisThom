@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   Clipboard,
   MessageSquare,
+  MoreHorizontal,
   Save,
 } from "lucide-react";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -131,6 +132,7 @@ function RequestDetailPage() {
     closeRequest,
     archiveRequest,
     restoreRequest,
+    deleteRequest,
     completeFollowUp,
     createQuoteVersion,
   } = useConvexCrm();
@@ -153,6 +155,7 @@ function RequestDetailPage() {
     "followUp" | "refuse" | "annule" | null
   >(null);
   const [reopenDialog, setReopenDialog] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<RequestDetailTab>("resume");
 
   useEffect(() => {
@@ -293,17 +296,18 @@ function RequestDetailPage() {
             {nextAction.kind === "archive" ? <Archive className="size-4" /> : <Clipboard className="size-4" />}
             {request.archivedAt ? "Désarchiver le dossier" : nextAction.title}
           </button>}
-          {request.status !== "annule" ? <details className="relative">
-            <summary className="cursor-pointer rounded-md border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700">Actions</summary>
+          <details className="relative">
+            <summary aria-label="Autres actions" className="list-none cursor-pointer rounded-md border border-stone-200 bg-white p-2 text-stone-700"><MoreHorizontal className="size-5" /></summary>
             <div className="absolute right-0 z-20 mt-2 grid min-w-56 gap-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
               <button onClick={() => setMessageOpen(true)} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Préparer un e-mail</button>
               {request.status === "relance" && getAllowedRequestStatuses(request.status).includes("devis_envoye") ? <button onClick={() => void changeStatus("devis_envoye")} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Revenir au devis envoyé</button> : null}
               {!request.archivedAt && getAllowedRequestStatuses(request.status).includes("refuse") ? <button onClick={() => setActionDialog("refuse")} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Refuser la demande</button> : null}
               {!request.archivedAt && getAllowedRequestStatuses(request.status).includes("annule") ? <button onClick={() => setActionDialog("annule")} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Annuler la demande</button> : null}
               {!request.archivedAt ? <button onClick={async () => { await archiveRequest(request._id); toast.success("Dossier archivé"); }} className="rounded px-3 py-2 text-left text-sm font-semibold text-stone-600 hover:bg-stone-50">Archiver le dossier</button> : <button onClick={async () => { await restoreRequest(request._id); toast.success("Dossier désarchivé"); }} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Désarchiver le dossier</button>}
+              <button onClick={() => setDeleteDialog(true)} className="rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer la demande</button>
               <label className="mt-1 border-t border-stone-100 px-3 pt-2 text-xs font-semibold text-stone-500">Statut (secours)<select value={request.status} onChange={(e) => void changeStatus(e.target.value as RequestStatus)} className="mt-1 w-full rounded border border-stone-200 bg-white px-2 py-1.5 text-sm text-stone-700">{getAllowedRequestStatuses(request.status).map((value) => <option key={value} value={value}>{requestStatusConfig[value].label}</option>)}</select></label>
             </div>
-          </details> : null}
+          </details>
         </div>
       </section>
       <section className="rounded-xl border border-stone-200 bg-white px-5 py-4 shadow-sm">
@@ -529,8 +533,14 @@ function RequestDetailPage() {
       )}
       {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande refusée" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
       {reopenDialog ? <ReopenDialog onClose={() => setReopenDialog(false)} onSubmit={async (status) => { await reopenCancelledRequest(request._id, status); setReopenDialog(false); toast.success("Dossier réouvert"); }} /> : null}
+      {deleteDialog ? <DeleteRequestDialog request={request} onClose={() => setDeleteDialog(false)} onConfirm={async () => { try { await deleteRequest(request._id); toast.success("Demande supprimée"); await navigate({ to: "/requests" }); } catch (error) { toast.error(error instanceof Error ? error.message : "Impossible de supprimer la demande"); } }} /> : null}
     </div>
   );
+}
+
+function DeleteRequestDialog({ request, onClose, onConfirm }: { request: LocalRequest; onClose: () => void; onConfirm: () => Promise<void> }) {
+  const eventDate = request.eventDate ? dateFormat.format(request.eventDate) : "date à préciser";
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><section role="dialog" aria-modal="true" aria-labelledby="delete-request-title" className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 id="delete-request-title" className="font-serif text-2xl font-bold">Supprimer la demande ?</h2><p className="mt-3 text-sm text-stone-600">Supprimer la demande de <strong>{request.contactName}</strong> du <strong>{eventDate}</strong> ?</p><p className="mt-2 text-xs text-stone-500">Elle ne sera plus affichée dans TrisThom.</p><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-sm font-bold text-stone-700">Annuler</button><button type="button" onClick={() => void onConfirm()} className="rounded-md bg-red-700 px-3 py-2 text-sm font-bold text-white">Supprimer</button></div></section></div>;
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {

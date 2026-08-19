@@ -1,6 +1,6 @@
 import { Link, Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useAction, useMutation } from "convex/react";
-import { CalendarDays, ChevronRight, CircleAlert, Columns3, FileText, LayoutList, Users } from "lucide-react";
+import { CalendarDays, ChevronRight, CircleAlert, Columns3, FileText, LayoutList, MoreHorizontal, Users } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -49,7 +49,7 @@ export const Route = createFileRoute("/_auth/requests")({
 function RequestsPage() {
   const searchParams = Route.useSearch();
   const navigate = useNavigate();
-  const { requests, archivedRequests, quotes, createRequest, updateStatus } = useConvexCrm();
+  const { requests, archivedRequests, quotes, createRequest, deleteRequest, updateStatus } = useConvexCrm();
   const import1001Pdf = useAction(api.pdfImport.import1001Pdf);
   const createImportedRequest = useMutation(api.crm.createRequest);
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
@@ -60,6 +60,7 @@ function RequestsPage() {
   const [tab, setTab] = useState<RequestTab>("a_traiter");
   const [view, setView] = useState<"list" | "board">("list");
   const [draggedRequestId, setDraggedRequestId] = useState<string | null>(null);
+  const [requestToDelete, setRequestToDelete] = useState<LocalRequest | null>(null);
   const [sort, setSort] = useState<"priority" | "nextAction" | "eventDate" | "receivedAt" | "amount">("priority");
   void setSort;
   const location = useLocation();
@@ -246,10 +247,11 @@ function RequestsPage() {
         ) : (
           view === "board" && tab !== "historique" ? <PipelineBoard requests={filteredRequests} onMove={moveRequest} draggedRequestId={draggedRequestId} setDraggedRequestId={setDraggedRequestId} /> : <div className="divide-y divide-stone-100">
             <div className="hidden grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] gap-5 px-6 py-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400 xl:grid"><span>Client</span><span>Événement</span><span>Dossier</span><span>Suivi</span><span>Action</span></div>
-            {sortedRequests.map((request) => <RequestRow key={request._id} request={request} quote={quotes.find((quote) => quote.requestId === request._id)} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} />)}
+            {sortedRequests.map((request) => <RequestRow key={request._id} request={request} quote={quotes.find((quote) => quote.requestId === request._id)} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} onDelete={() => setRequestToDelete(request)} />)}
           </div>
         )}
       </section>
+      {requestToDelete ? <DeleteRequestDialog request={requestToDelete} onClose={() => setRequestToDelete(null)} onConfirm={async () => { try { await deleteRequest(requestToDelete._id); setRequestToDelete(null); toast.success("Demande supprimée"); } catch (error) { toast.error(error instanceof Error ? error.message : "Impossible de supprimer la demande"); } }} /> : null}
     </div>
   );
 }
@@ -262,7 +264,7 @@ function QuickFilterButton({ active, onClick, children }: { active: boolean; onC
   return <button type="button" onClick={onClick} className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${active ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{children}</button>;
 }
 
-function RequestRow({ request, onOpen, quote }: { request: LocalRequest; quote?: { quoteNumber: string }; onOpen: () => void }) {
+function RequestRow({ request, onOpen, onDelete, quote }: { request: LocalRequest; quote?: { quoteNumber: string }; onOpen: () => void; onDelete: () => void }) {
   void quote;
   const missingCount = request.missingInformation.length;
   const followUp = request.followUps.find((item) => !item.completedAt);
@@ -270,7 +272,12 @@ function RequestRow({ request, onOpen, quote }: { request: LocalRequest; quote?:
   const nextAction = followUp?.title ?? (missingCount ? "Qualifier le dossier" : request.status === "nouveau" ? "Prendre contact" : request.status === "devis_a_preparer" ? "Préparer le devis" : request.status === "devis_envoye" ? "Attendre le retour client" : request.status === "relance" ? "Relancer le client" : request.status === "accepte" ? "Prestation confirmée" : "Suivre le dossier");
   const shortAddress = request.eventAddress?.split(",")[0];
   const stage = getRequestStage(request);
-  return <article onClick={onOpen} className="grid cursor-pointer gap-4 px-5 py-5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-2 xl:grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] xl:items-center xl:gap-5"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-semibold">{request.contactName}</h3>{shouldShowNewBadge(request) ? <span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-[11px] font-bold text-[#8b1629]">Nouveau</span> : null}<span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-[11px] font-bold text-[#8b1629]">{sourceLabels[request.source] ?? request.source}</span></div><p className="mt-1 truncate text-sm text-stone-500">{request.organizationName || "Particulier"}</p></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{request.eventType || "Format à préciser"}</p><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500"><span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5" />{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</span><span className="inline-flex items-center gap-1"><Users className="size-3.5" />{request.guestCount ? `${request.guestCount} pers.` : "Convives à préciser"}</span></div>{shortAddress ? <p className="mt-1 truncate text-xs text-stone-500">{shortAddress}</p> : null}</div><div><p className="text-sm font-semibold">{budget}</p><p className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${missingCount ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>{missingCount ? `${missingCount} information${missingCount > 1 ? "s" : ""} manquante${missingCount > 1 ? "s" : ""}` : "Dossier complet"}</p></div><div><span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${requestStageConfig[stage].badgeClassName}`}>{requestStageConfig[stage].label}</span><p className="mt-2 text-sm font-semibold text-stone-700">{nextAction}</p>{followUp ? <time className="mt-1 block text-xs text-[#8b1629]">Échéance : {dateFormat.format(followUp.dueAt)}</time> : null}</div><div className="flex items-center justify-end"><ChevronRight className="size-5 text-stone-300" /></div></article>;
+  return <article onClick={onOpen} className="grid cursor-pointer gap-4 px-5 py-5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-2 xl:grid-cols-[1.15fr_1.2fr_.9fr_1fr_auto] xl:items-center xl:gap-5"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-semibold">{request.contactName}</h3>{shouldShowNewBadge(request) ? <span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-[11px] font-bold text-[#8b1629]">Nouveau</span> : null}<span className="rounded-full bg-[#f5ecee] px-2 py-0.5 text-[11px] font-bold text-[#8b1629]">{sourceLabels[request.source] ?? request.source}</span></div><p className="mt-1 truncate text-sm text-stone-500">{request.organizationName || "Particulier"}</p></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{request.eventType || "Format à préciser"}</p><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500"><span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5" />{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</span><span className="inline-flex items-center gap-1"><Users className="size-3.5" />{request.guestCount ? `${request.guestCount} pers.` : "Convives à préciser"}</span></div>{shortAddress ? <p className="mt-1 truncate text-xs text-stone-500">{shortAddress}</p> : null}</div><div><p className="text-sm font-semibold">{budget}</p><p className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${missingCount ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>{missingCount ? `${missingCount} information${missingCount > 1 ? "s" : ""} manquante${missingCount > 1 ? "s" : ""}` : "Dossier complet"}</p></div><div><span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${requestStageConfig[stage].badgeClassName}`}>{requestStageConfig[stage].label}</span><p className="mt-2 text-sm font-semibold text-stone-700">{nextAction}</p>{followUp ? <time className="mt-1 block text-xs text-[#8b1629]">Échéance : {dateFormat.format(followUp.dueAt)}</time> : null}</div><div className="flex items-center justify-end gap-2"><details onClick={(event) => event.stopPropagation()} className="relative"><summary aria-label={`Actions pour ${request.contactName}`} className="list-none rounded-md p-2 text-stone-500 hover:bg-stone-100"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-stone-200 bg-white p-1 shadow-lg"><button type="button" onClick={onDelete} className="w-full rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details><ChevronRight className="size-5 text-stone-300" /></div></article>;
+}
+
+function DeleteRequestDialog({ request, onClose, onConfirm }: { request: LocalRequest; onClose: () => void; onConfirm: () => Promise<void> }) {
+  const eventDate = request.eventDate ? dateFormat.format(request.eventDate) : "date à préciser";
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><section role="dialog" aria-modal="true" aria-labelledby="delete-request-title" className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 id="delete-request-title" className="font-serif text-2xl font-bold">Supprimer la demande ?</h2><p className="mt-3 text-sm text-stone-600">Supprimer la demande de <strong>{request.contactName}</strong> du <strong>{eventDate}</strong> ?</p><p className="mt-2 text-xs text-stone-500">Elle ne sera plus affichée dans TrisThom.</p><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-sm font-bold text-stone-700">Annuler</button><button type="button" onClick={() => void onConfirm()} className="rounded-md bg-red-700 px-3 py-2 text-sm font-bold text-white">Supprimer</button></div></section></div>;
 }
 
 function PipelineBoard({ requests, onMove, draggedRequestId, setDraggedRequestId }: { requests: LocalRequest[] | undefined; onMove: (requestId: string, stage: (typeof pipelineStages)[number]) => Promise<void>; draggedRequestId: string | null; setDraggedRequestId: (value: string | null) => void }) {

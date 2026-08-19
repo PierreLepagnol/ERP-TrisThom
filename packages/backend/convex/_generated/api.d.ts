@@ -29,6 +29,7 @@ import type * as inboxPoller from "../inboxPoller.js";
 import type * as magicLinkEmail from "../magicLinkEmail.js";
 import type * as pdfImport from "../pdfImport.js";
 import type * as privateData from "../privateData.js";
+import type * as requestDeletion from "../requestDeletion.js";
 import type * as requestParsing from "../requestParsing.js";
 
 import type {
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   magicLinkEmail: typeof magicLinkEmail;
   pdfImport: typeof pdfImport;
   privateData: typeof privateData;
+  requestDeletion: typeof requestDeletion;
   requestParsing: typeof requestParsing;
 }>;
 

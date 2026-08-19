@@ -48,6 +48,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
   const deleteCatalogItemMutation = useMutation(api.crm.deleteCatalogItem);
   const completeFollowUpMutation = useMutation(api.crm.completeFollowUp);
   const archiveRequestMutation = useMutation(api.crm.archiveRequest);
+  const deleteRequestMutation = useMutation(api.crm.deleteRequest);
   const clearAllRequestsMutation = useMutation(api.crm.clearAllRequests);
 
   const resetDemoData = useCallback(async () => {
@@ -268,14 +269,22 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
     [archiveRequestMutation],
   );
 
+  const deleteRequest = useCallback<LocalCrm["deleteRequest"]>(
+    async (id) => {
+      await deleteRequestMutation({ requestId: requestId(id) });
+    },
+    [deleteRequestMutation],
+  );
+
   const requests = (workspace?.requests ?? []) as LocalRequest[];
   const quotes = (workspace?.quotes ?? []) as Quote[];
   const catalog = (workspace?.catalog ?? []) as CatalogItem[];
 
   const value = useMemo<LocalCrm>(() => {
     const now = Date.now();
-    const visibleRequests = requests.filter((request) => !request.archivedAt);
-    const archivedRequests = requests.filter((request) => request.archivedAt);
+    const nonDeletedRequests = requests.filter((request) => !request.deletedAt);
+    const visibleRequests = nonDeletedRequests.filter((request) => !request.archivedAt);
+    const archivedRequests = nonDeletedRequests.filter((request) => request.archivedAt);
     const active = visibleRequests.filter((request) =>
       activeRequestStatuses.includes(request.status),
     );
@@ -284,7 +293,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
     );
     const accepted = decided.filter((request) => request.status === "accepte");
     const clientMap = new Map<string, LocalCrm["clients"][number]>();
-    for (const request of requests) {
+    for (const request of nonDeletedRequests) {
       const key =
         request.contactEmail?.toLowerCase() ??
         request.contactPhone ??
@@ -328,6 +337,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
       completeFollowUp,
       archiveRequest,
       restoreRequest,
+      deleteRequest,
       resetDemoData,
       dashboard: {
         metrics: {
@@ -385,6 +395,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
     createQuoteVersion,
     createRequest,
     deleteCatalogItem,
+    deleteRequest,
     deleteQuoteVersion,
     markHandled,
     markQuoteSent,

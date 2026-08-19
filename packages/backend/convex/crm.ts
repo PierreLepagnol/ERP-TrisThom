@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { authComponent } from "./auth";
 import { requireDestructiveCrmResetEnabled } from "./destructiveOperations";
+import { isVisibleRequest } from "./requestDeletion";
 import type { Doc, Id } from "./_generated/dataModel";
 import { env, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 
@@ -474,7 +475,7 @@ export const workspace = query({
       followUpsByRequest.set(task.requestId, entries);
     }
     return {
-      requests: requests.map((request) => {
+      requests: requests.filter(isVisibleRequest).map((request) => {
         const quote = quoteByRequest.get(request._id);
         return {
           ...request,
@@ -1158,6 +1159,19 @@ export const deleteCatalogItem = mutation({
     const item = await ctx.db.query("catalogItems").withIndex("by_externalId", (index) => index.eq("externalId", args.itemId)).unique();
     if (!item) throw new Error("Article de catalogue introuvable.");
     await ctx.db.delete(item._id);
+    return null;
+  },
+});
+
+export const deleteRequest = mutation({
+  args: { requestId: v.id("requests") },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    const request = await getRequestOrThrow(ctx, args.requestId);
+    if (request.deletedAt) return null;
+    const now = Date.now();
+    await ctx.db.patch(request._id, { deletedAt: now, updatedAt: now });
+    await addHistory(ctx, request._id, "Demande supprimée", now);
     return null;
   },
 });

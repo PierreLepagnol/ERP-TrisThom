@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { internalMutation } from "./_generated/server";
+import { canCreateRequestForSource } from "./requestDeletion";
 
 function missingInformation(args: {
   contactEmail?: string;
@@ -39,7 +40,9 @@ export const ingestRequest = internalMutation({
       )
       .unique();
 
-    if (existingRequest) return { requestId: existingRequest._id, created: false };
+    if (!canCreateRequestForSource(existingRequest)) {
+      return { requestId: existingRequest._id, created: false };
+    }
 
     const now = Date.now();
     const requestMissingInformation = missingInformation(args);
