@@ -1,14 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, ClipboardList, LayoutDashboard, Package, Plus, Users, Wrench } from "lucide-react";
+import { CalendarDays, ClipboardList, LayoutDashboard, Plus, Users } from "lucide-react";
 
 export default function Header() {
   const links = [
-    { to: "/dashboard", label: "Vue d'ensemble", icon: LayoutDashboard },
+    { to: "/dashboard", label: "Accueil", icon: LayoutDashboard },
     { to: "/requests", label: "Demandes", icon: ClipboardList },
-    { to: "/services", label: "Prestations", icon: Wrench },
-    { to: "/calendar", label: "Calendrier", icon: CalendarDays },
+    { to: "/calendar", label: "Planning", icon: CalendarDays },
     { to: "/clients", label: "Clients", icon: Users },
-    { to: "/catalog", label: "Catalogue", icon: Package },
   ] as const;
 
   return (
@@ -44,7 +42,6 @@ export default function Header() {
             <Plus className="size-4" />
             <span className="hidden sm:inline">Nouvelle demande</span>
           </Link>
-          <span className="hidden rounded-full border border-white/20 px-2.5 py-1 text-xs font-semibold text-white/70 xl:inline">Convex connecté</span>
         </div>
       </div>
     </header>
