@@ -31,6 +31,7 @@ type Env = {
   readonly DIRECTUS_BASE_URL: string | undefined;
   readonly DIRECTUS_STATIC_TOKEN: string | undefined;
   readonly DIRECTUS_WEBHOOK_SECRET: string | undefined;
+  readonly ENABLE_EMAIL_IMPORT: string | undefined;
   readonly IMAP_HOST: string;
   readonly IMAP_PORT: string;
   readonly IMAP_SECURE: string;

@@ -113,14 +113,35 @@ export default defineSchema({
     subject: v.optional(v.string()),
     receivedAt: v.optional(v.number()),
     textPreview: v.optional(v.string()),
+    body: v.optional(v.string()),
     attachmentNames: v.array(v.string()),
     hasPdfAttachment: v.boolean(),
-    outcome: v.union(v.literal("created"), v.literal("ignored")),
+    outcome: v.union(v.literal("created"), v.literal("ignored"), v.literal("review")),
+    reviewStatus: v.optional(v.union(v.literal("pending"), v.literal("attached"), v.literal("ignored"), v.literal("created"))),
+    reviewReason: v.optional(v.string()),
     requestId: v.optional(v.id("requests")),
     createdAt: v.number(),
   })
     .index("by_externalId", ["externalId"])
     .index("by_requestId", ["requestId"]),
+
+  requestChangeSuggestions: defineTable({
+    requestId: v.id("requests"),
+    inboxMessageId: v.id("inboxMessages"),
+    field: v.string(),
+    currentValue: v.string(),
+    proposedValue: v.string(),
+    status: v.union(v.literal("pending"), v.literal("applied"), v.literal("ignored")),
+    createdAt: v.number(),
+  })
+    .index("by_requestId_and_status", ["requestId", "status"])
+    .index("by_inboxMessageId", ["inboxMessageId"]),
+
+  inboxImportState: defineTable({
+    key: v.literal("email_import"),
+    enabledAt: v.number(),
+    lastSeenUid: v.number(),
+  }).index("by_key", ["key"]),
 
   emailMessages: defineTable({
     requestId: v.id("requests"),

@@ -168,7 +168,7 @@ Lance :
 bunx convex env list --names-only
 ```
 
-Tu dois voir au minimum ces quatorze noms :
+Tu dois voir au minimum ces quinze noms :
 
 ```text
 BETTER_AUTH_SECRET
@@ -185,6 +185,7 @@ IMAP_SECURE
 DIRECTUS_WEBHOOK_SECRET
 DIRECTUS_BASE_URL
 DIRECTUS_STATIC_TOKEN
+ENABLE_EMAIL_IMPORT
 ```
 
 > Utilise toujours `--names-only`. Sans cette option, les secrets s'affichent.
@@ -213,6 +214,14 @@ bunx convex env set DIRECTUS_STATIC_TOKEN
 ```
 
 `DIRECTUS_STATIC_TOKEN` est un token Directus en lecture seule : ne l'affiche jamais et ne le versionne jamais. Le rattrapage parcourt toutes les pages de `quote_requests` et ne crée pas de doublons.
+
+Par sécurité, l'import automatique des e-mails est désactivé tant que cette variable n'est pas définie :
+
+```bash
+bunx convex env set ENABLE_EMAIL_IMPORT true
+```
+
+Lors de sa première activation, le poller mémorise l'instant de départ et ignore les e-mails historiques. N'active cette variable qu'après avoir vérifié IMAP.
 
 ## 6. Lancer et tester
 

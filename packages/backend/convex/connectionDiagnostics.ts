@@ -43,6 +43,8 @@ export const get = query({
     const lastWebhook = latestEvent(webhookEvents);
     const lastSync = latestEvent(syncEvents);
     const lastCreatedWebhook = webhookAudits.find((entry) => entry.outcome === "success" && entry.code === "created");
+    const lastWebhookFailure = webhookAudits.find((entry) => entry.outcome === "failure");
+    const lastSyncFailure = syncAudits.find((entry) => entry.outcome === "failure");
 
     return {
       convex: { status: "ok" as const, lastEventAt: Date.now() },
@@ -55,13 +57,15 @@ export const get = query({
         deployed: true,
         secretConfigured: configured(env.DIRECTUS_WEBHOOK_SECRET),
         lastEventAt: lastWebhook?.receivedAt,
-        lastErrorCode: lastWebhook?.outcome === "failure" ? lastWebhook.code : undefined,
+        lastErrorCode: lastWebhookFailure?.code,
+        lastFailureAt: lastWebhookFailure?.receivedAt,
         lastCreatedAt: lastCreatedWebhook?.receivedAt,
       },
       directusSync: {
         status: statusFromAudit(configured(env.DIRECTUS_BASE_URL), syncEvents),
         lastEventAt: lastSync?.receivedAt,
-        lastErrorCode: lastSync?.outcome === "failure" ? lastSync.code : undefined,
+        lastErrorCode: lastSyncFailure?.code,
+        lastFailureAt: lastSyncFailure?.receivedAt,
       },
       imap: {
         status: configured(env.IMAP_HOST, env.IMAP_PORT, env.IMAP_SECURE, env.SMTP_USER, env.SMTP_PASSWORD)

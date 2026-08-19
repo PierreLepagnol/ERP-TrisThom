@@ -20,6 +20,7 @@ const app = defineApp({
     IMAP_SECURE: v.string(),
     CRM_IMPORT_SECRET: v.optional(v.string()),
     ALLOW_DESTRUCTIVE_CRM_RESET: v.optional(v.string()),
+    ENABLE_EMAIL_IMPORT: v.optional(v.string()),
   },
 });
 app.use(betterAuth);
