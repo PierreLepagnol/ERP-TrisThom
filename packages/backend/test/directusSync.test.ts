@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { syncRecentDirectusQuoteRequests, type DirectusSyncAudit } from "../convex/directusSync";
 import type { DirectusRequest } from "../convex/directusWebhook";
 
-function harness(records: unknown, options: { failures?: number; status?: number } = {}) {
+function harness(records: unknown[], options: { failures?: number; status?: number } = {}) {
   const requests = new Map<string, DirectusRequest>();
   const audits: DirectusSyncAudit[] = [];
   let calls = 0;
@@ -12,10 +12,11 @@ function harness(records: unknown, options: { failures?: number; status?: number
     requests,
     run: () => syncRecentDirectusQuoteRequests({
       baseUrl: "https://directus.example.test",
-      fetch: async () => {
+      fetch: async (input) => {
         calls += 1;
         if (calls <= (options.failures ?? 0)) throw new TypeError("network failure");
-        return new Response(JSON.stringify({ data: records }), { status: options.status ?? 200 });
+        const offset = Number(new URL(String(input)).searchParams.get("offset") ?? "0");
+        return new Response(JSON.stringify({ data: records.slice(offset, offset + 100) }), { status: options.status ?? 200 });
       },
       ingest: async (request) => {
         const created = !requests.has(request.externalSourceId);
@@ -52,4 +53,11 @@ test("records unauthorized and invalid Directus responses without importing", as
   expect(await unauthorized.run()).toMatchObject({ outcome: "failure", code: "directus_http_error", statusCode: 401 });
   const invalid = harness([{ name: "No id" }]);
   expect(await invalid.run()).toMatchObject({ outcome: "success", examined: 1, imported: 0, invalid: 1 });
+});
+
+test("paginates the Directus backlog instead of silently stopping after 100 requests", async () => {
+  const records = Array.from({ length: 101 }, (_, index) => ({ id: index + 1, name: `Contact ${index + 1}` }));
+  const app = harness(records);
+  expect(await app.run()).toMatchObject({ outcome: "success", examined: 101, imported: 101 });
+  expect(app.requests.size).toBe(101);
 });

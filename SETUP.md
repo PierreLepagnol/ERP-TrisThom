@@ -148,7 +148,19 @@ Le terminal te demande le mot de passe: Entre le mot de passe genre : `Comp*****
 
 Rien ne s'affiche pendant la saisie. C'est normal.
 
-### 5.3 Vérifier
+### 5.3 Configurer la lecture IMAP
+
+Le poller lit la boîte toutes les 10 minutes. Il utilise le même identifiant et le même mot de passe que SMTP, mais exige aussi :
+
+```bash
+bunx convex env set IMAP_HOST
+bunx convex env set IMAP_PORT 993
+bunx convex env set IMAP_SECURE true
+```
+
+Renseigne `IMAP_HOST` avec le serveur IMAP fourni par l'hébergeur de la boîte. Le test de connexion ne lit aucun e-mail et ne modifie aucun dossier.
+
+### 5.4 Vérifier
 
 Lance :
 
@@ -156,7 +168,7 @@ Lance :
 bunx convex env list --names-only
 ```
 
-Tu dois voir ces huit noms :
+Tu dois voir au minimum ces quatorze noms :
 
 ```text
 BETTER_AUTH_SECRET
@@ -167,11 +179,17 @@ SMTP_PASSWORD
 SMTP_PORT
 SMTP_SECURE
 SMTP_USER
+IMAP_HOST
+IMAP_PORT
+IMAP_SECURE
+DIRECTUS_WEBHOOK_SECRET
+DIRECTUS_BASE_URL
+DIRECTUS_STATIC_TOKEN
 ```
 
 > Utilise toujours `--names-only`. Sans cette option, les secrets s'affichent.
 
-### 5.4 Configurer le webhook Directus
+### 5.5 Configurer le webhook Directus
 
 Crée un secret aléatoire, puis configure-le sans l'afficher :
 
@@ -186,6 +204,15 @@ Vérifie seulement la présence de la variable, jamais sa valeur :
 ```bash
 bunx convex env list --names-only
 ```
+
+Le rattrapage automatique Directus est indépendant du webhook. Configure-le seulement si le compte Directus peut lire la collection `quote_requests` :
+
+```bash
+bunx convex env set DIRECTUS_BASE_URL https://votre-directus.exemple
+bunx convex env set DIRECTUS_STATIC_TOKEN
+```
+
+`DIRECTUS_STATIC_TOKEN` est un token Directus en lecture seule : ne l'affiche jamais et ne le versionne jamais. Le rattrapage parcourt toutes les pages de `quote_requests` et ne crée pas de doublons.
 
 ## 6. Lancer et tester
 
@@ -323,6 +350,19 @@ bunx convex env --prod list --names-only
 ```
 
 N'utilise pas la clé `BETTER_AUTH_SECRET` de développement en production.
+
+# Test de mise en service
+
+Après déploiement, connecte-toi à l'application puis contrôle les diagnostics sécurisés depuis un client authentifié. Ils ne retournent jamais de secret.
+
+1. **Convex** — charge la query `connectionDiagnostics:get` : `convex.status` doit être `ok`.
+2. **Auth** — demande un lien magique depuis l'écran de connexion et ouvre-le ; `betterAuth.status` doit être `ok`.
+3. **Directus webhook** — avec le header secret configuré, appelle `GET /webhooks/directus/quote-request/diagnostic` sur l'URL `.site` : la réponse doit contenir `routeDeployed: true` et `secretMatches: true`.
+4. **Directus rattrapage** — vérifie dans `connectionDiagnostics:get` que `directusSync.status` est `ok` après le prochain cron ; en cas d'échec, consulte seulement `lastErrorCode`.
+5. **IMAP** — depuis un client authentifié, appelle l'action `connectionChecks:verifyImap`. Elle doit répondre `imap_connection_verified` et ne lit ni ne marque aucun e-mail.
+6. **SMTP** — depuis un client authentifié, appelle l'action `connectionChecks:verifySmtp`. Elle doit répondre `smtp_connection_verified` et n'envoie aucun e-mail.
+
+Ne définis jamais `ALLOW_DESTRUCTIVE_CRM_RESET=true` en production. Cette variable est réservée à un environnement de développement temporaire pour les outils de démo/remise à zéro.
 
 ## Commandes utiles
 

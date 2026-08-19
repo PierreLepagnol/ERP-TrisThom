@@ -4,6 +4,8 @@ import { parseDirectusQuoteRequest, type DirectusRequest } from "./directusWebho
 
 const maxAttempts = 3;
 const timeoutMs = 10_000;
+const pageSize = 100;
+const maxPagesPerRun = 100;
 
 export type DirectusSyncAudit = {
   receivedAt: number;
@@ -33,12 +35,48 @@ export async function syncRecentDirectusQuoteRequests({ baseUrl, token, fetch, i
     return result;
   }
 
+  let imported = 0;
+  let invalid = 0;
+  let examined = 0;
+  let lastDirectusItemId: string | undefined;
+  for (let page = 0; page < maxPagesPerRun; page += 1) {
+    const pageResult = await fetchPage({ baseUrl, token, fetch, offset: page * pageSize });
+    if (pageResult.kind === "failure") {
+      const result = { receivedAt, outcome: "failure" as const, examined, imported, invalid, code: pageResult.code, ...(pageResult.statusCode ? { statusCode: pageResult.statusCode } : {}) };
+      await audit(result);
+      return result;
+    }
+    const records = pageResult.records;
+    examined += records.length;
+    for (const record of records) {
+      const request = parseDirectusQuoteRequest(record);
+      if (!request) {
+        invalid += 1;
+        continue;
+      }
+      lastDirectusItemId = request.externalSourceId;
+      if ((await ingest(request)).created) imported += 1;
+    }
+    if (records.length < pageSize) {
+      const result = { receivedAt, outcome: "success" as const, examined, imported, invalid, code: "directus_sync_completed", lastDirectusItemId };
+      await audit(result);
+      return result;
+    }
+  }
+
+  const result = { receivedAt, outcome: "failure" as const, examined, imported, invalid, code: "directus_sync_page_limit_reached", lastDirectusItemId };
+  await audit(result);
+  return result;
+}
+
+async function fetchPage({ baseUrl, token, fetch, offset }: Pick<SyncDependencies, "baseUrl" | "token" | "fetch"> & { offset: number }) {
   let response: Response | undefined;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      response = await fetch(`${baseUrl.replace(/\/$/, "")}/items/quote_requests?limit=100&sort=-date_created,-id`, {
+      const query = new URLSearchParams({ limit: String(pageSize), offset: String(offset), sort: "date_created,id" });
+      response = await fetch(`${baseUrl!.replace(/\/$/, "")}/items/quote_requests?${query}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         signal: controller.signal,
       });
@@ -46,52 +84,17 @@ export async function syncRecentDirectusQuoteRequests({ baseUrl, token, fetch, i
       break;
     } catch {
       clearTimeout(timeout);
-      if (attempt === maxAttempts - 1) {
-        const result = { receivedAt, outcome: "failure" as const, examined: 0, imported: 0, invalid: 0, code: "directus_network_error" };
-        await audit(result);
-        return result;
-      }
+      if (attempt === maxAttempts - 1) return { kind: "failure" as const, code: "directus_network_error" };
     }
   }
-
-  if (!response || !response.ok) {
-    const result = { receivedAt, outcome: "failure" as const, examined: 0, imported: 0, invalid: 0, code: "directus_http_error", statusCode: response?.status };
-    await audit(result);
-    return result;
-  }
-
-  let payload: unknown;
+  if (!response || !response.ok) return { kind: "failure" as const, code: "directus_http_error", statusCode: response?.status };
   try {
-    payload = await response.json();
+    const payload: unknown = await response.json();
+    const records = isRecord(payload) && Array.isArray(payload.data) ? payload.data : undefined;
+    return records ? { kind: "success" as const, records } : { kind: "failure" as const, code: "directus_invalid_response" };
   } catch {
-    const result = { receivedAt, outcome: "failure" as const, examined: 0, imported: 0, invalid: 0, code: "directus_invalid_response" };
-    await audit(result);
-    return result;
+    return { kind: "failure" as const, code: "directus_invalid_response" };
   }
-
-  const records = isRecord(payload) && Array.isArray(payload.data) ? payload.data : undefined;
-  if (!records) {
-    const result = { receivedAt, outcome: "failure" as const, examined: 0, imported: 0, invalid: 0, code: "directus_invalid_response" };
-    await audit(result);
-    return result;
-  }
-
-  let imported = 0;
-  let invalid = 0;
-  let lastDirectusItemId: string | undefined;
-  for (const record of records) {
-    const request = parseDirectusQuoteRequest(record);
-    if (!request) {
-      invalid += 1;
-      continue;
-    }
-    lastDirectusItemId = request.externalSourceId;
-    if ((await ingest(request)).created) imported += 1;
-  }
-
-  const result = { receivedAt, outcome: "success" as const, examined: records.length, imported, invalid, code: "directus_sync_completed", lastDirectusItemId };
-  await audit(result);
-  return result;
 }
 
 export const syncRecentRequests = internalAction({

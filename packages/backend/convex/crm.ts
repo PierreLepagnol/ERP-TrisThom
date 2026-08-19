@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 
 import { authComponent } from "./auth";
+import { requireDestructiveCrmResetEnabled } from "./destructiveOperations";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { env, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 
 const requestStatus = v.union(
   v.literal("nouveau"),
@@ -1218,6 +1219,7 @@ export const removeDemoRequests = mutation({
   args: {},
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
+    requireDestructiveCrmResetEnabled(env.ALLOW_DESTRUCTIVE_CRM_RESET);
     const requests = await ctx.db.query("requests").take(100);
     const demoRequests = requests.filter((request) =>
       demoContactNames.has(request.contactName) && !request.externalSourceId,
@@ -1250,6 +1252,7 @@ export const clearAllRequests = mutation({
   args: {},
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
+    requireDestructiveCrmResetEnabled(env.ALLOW_DESTRUCTIVE_CRM_RESET);
     const requests = await ctx.db.query("requests").take(500);
     for (const request of requests) {
       const [notes, history, followUps, messages, quote] = await Promise.all([
@@ -1291,6 +1294,7 @@ export const resetDemoData = mutation({
   },
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
+    requireDestructiveCrmResetEnabled(env.ALLOW_DESTRUCTIVE_CRM_RESET);
     if (args.requests.length > 100 || args.catalog.length > 1_000) throw new Error("Le jeu de démonstration est trop volumineux.");
     if (args.onlyIfEmpty) {
       const [request, catalogItem] = await Promise.all([

@@ -25,6 +25,7 @@ import type { DataModel } from "./dataModel.js";
  * Typesafe environment variables declared in `convex.config.ts`.
  */
 type Env = {
+  readonly ALLOW_DESTRUCTIVE_CRM_RESET: string | undefined;
   readonly BETTER_AUTH_SECRET: string;
   readonly CRM_IMPORT_SECRET: string | undefined;
   readonly DIRECTUS_BASE_URL: string | undefined;
@@ -33,7 +34,7 @@ type Env = {
   readonly IMAP_HOST: string;
   readonly IMAP_PORT: string;
   readonly IMAP_SECURE: string;
-  readonly SITE_URL: string | undefined;
+  readonly SITE_URL: string;
   readonly SMTP_FROM: string;
   readonly SMTP_HOST: string;
   readonly SMTP_PASSWORD: string;
