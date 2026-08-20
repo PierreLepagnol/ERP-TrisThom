@@ -35,6 +35,7 @@ export type LocalHistoryEntry = {
 };
 export type LocalFollowUp = {
   id: string;
+  kind?: "relance_j3" | "relance_j7" | "manuel";
   title: string;
   dueAt: number;
   completedAt?: number;
@@ -242,7 +243,7 @@ export type LocalCrm = {
   markHandled: (requestId: string) => Promise<void>;
   startQuotePreparation: (requestId: string) => Promise<void>;
   markQuoteSent: (requestId: string) => Promise<void>;
-  scheduleFollowUp: (requestId: string, dueAt: number) => Promise<void>;
+  scheduleFollowUp: (requestId: string, title: string | number, dueAt?: number) => Promise<void>;
   confirmService: (requestId: string) => Promise<void>;
   closeRequest: (
     requestId: string,
@@ -262,6 +263,7 @@ export type LocalCrm = {
   saveCatalogItem: (item: CatalogItem) => Promise<void>;
   deleteCatalogItem: (itemId: string) => Promise<void>;
   completeFollowUp: (requestId: string, followUpId: string) => Promise<void>;
+  deleteFollowUp: (requestId: string, followUpId: string) => Promise<void>;
   archiveRequest: (requestId: string) => Promise<void>;
   restoreRequest: (requestId: string) => Promise<void>;
   deleteRequest: (requestId: string) => Promise<void>;
@@ -1003,19 +1005,6 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     }: Parameters<LocalCrm["updateStatus"]>[0]) => {
       const request = requests.find((item) => item._id === requestId);
       if (!request) throw new Error("Demande introuvable.");
-      if (
-        request.status !== status &&
-        !getAllowedRequestStatuses(request.status).includes(status)
-      ) {
-        throw new Error("Cette transition de statut n’est pas autorisée.");
-      }
-      if (
-        status === "accepte" &&
-        (!request.eventDate || !eventStartTime || !eventEndTime)
-      )
-        throw new Error(
-          "La date et les horaires sont obligatoires avant confirmation.",
-        );
       const now = Date.now();
       setRequests((current) =>
         current.map((item) =>
@@ -1027,31 +1016,11 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
                 eventStartTime: eventStartTime ?? item.eventStartTime,
                 eventEndTime: eventEndTime ?? item.eventEndTime,
                 acceptedAt: status === "accepte" ? now : item.acceptedAt,
-                nextActionAt:
-                  status === "devis_envoye"
-                    ? now + 3 * 86400000
-                    : item.nextActionAt,
-                followUps:
-                  status === "devis_envoye" && item.status !== "devis_envoye"
-                    ? [
-                        ...item.followUps,
-                        {
-                          id: id("j3"),
-                          title: `Relancer ${item.contactName} (J+3)`,
-                          dueAt: now + 3 * 86400000,
-                        },
-                        {
-                          id: id("j7"),
-                          title: `Relancer ${item.contactName} (J+7)`,
-                          dueAt: now + 7 * 86400000,
-                        },
-                      ]
-                    : item.followUps,
                 history: [
                   ...item.history,
                   {
                     id: id("status"),
-                    label: `Statut modifié : ${status.replaceAll("_", " ")}`,
+                    label: `Statut : ${requestStatusConfig[item.status].label} → ${requestStatusConfig[status].label}`,
                     createdAt: now,
                   },
                 ],
@@ -1192,13 +1161,6 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       const missing = missingInformation(request);
       if (missing.length)
         throw new Error(`À compléter : ${missing.join(", ")}`);
-      if (
-        request.status !== "devis_a_preparer" &&
-        !getAllowedRequestStatuses(request.status).includes("devis_a_preparer")
-      )
-        throw new Error(
-          "La demande doit être qualifiée avant la préparation du devis.",
-        );
       const now = Date.now();
       setRequests((current) =>
         current.map((item) =>
@@ -1280,11 +1242,13 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
                       ...item.followUps,
                       {
                         id: id("j3"),
+                        kind: "relance_j3",
                         title: `Relancer ${item.contactName} après le devis`,
                         dueAt: now + 3 * day,
                       },
                       {
                         id: id("j7"),
+                        kind: "relance_j7",
                         title: `Relancer ${item.contactName} après le devis`,
                         dueAt: now + 7 * day,
                       },
@@ -1305,16 +1269,14 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     [quotes, requests],
   );
   const scheduleFollowUp = useCallback(
-    async (requestId: string, dueAt: number) => {
+    async (requestId: string, title: string | number, dueAt?: number) => {
       const request = requests.find((item) => item._id === requestId);
       if (!request) throw new Error("Demande introuvable.");
-      if (
-        request.status !== "relance" &&
-        !getAllowedRequestStatuses(request.status).includes("relance")
-      )
-        throw new Error(
-          "Une relance ne peut être programmée qu’après l’envoi du devis.",
-        );
+      const normalizedTitle = typeof title === "string" ? title.trim() : `Relancer ${request.contactName}`;
+      const reminderDueAt = typeof title === "number" ? title : dueAt;
+      if (!normalizedTitle) throw new Error("Le libellé du rappel est obligatoire.");
+      if (normalizedTitle.length > 200) throw new Error("Le libellé du rappel ne peut pas dépasser 200 caractères.");
+      if (typeof reminderDueAt !== "number" || !Number.isFinite(reminderDueAt)) throw new Error("La date du rappel est invalide.");
       const now = Date.now();
       setRequests((current) =>
         current.map((item) =>
@@ -1322,14 +1284,13 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
             ? item
             : {
                 ...item,
-                status: "relance",
-                nextActionAt: dueAt,
                 followUps: [
                   ...item.followUps,
                   {
                     id: id("manual-followup"),
-                    title: `Relancer ${item.contactName}`,
-                    dueAt,
+                    kind: "manuel",
+                    title: normalizedTitle,
+                    dueAt: reminderDueAt,
                   },
                 ],
                 history: [
@@ -1532,11 +1493,13 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
                         ...item.followUps,
                         {
                           id: id("quote-j3"),
+                          kind: "relance_j3",
                           title: `Relancer ${item.contactName} (J+3)`,
                           dueAt: now + 3 * 86400000,
                         },
                         {
                           id: id("quote-j7"),
+                          kind: "relance_j7",
                           title: `Relancer ${item.contactName} (J+7)`,
                           dueAt: now + 7 * 86400000,
                         },
@@ -1723,6 +1686,24 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+  const deleteFollowUp = useCallback(
+    async (requestId: string, followUpId: string) => {
+      const now = Date.now();
+      setRequests((current) =>
+        current.map((item) =>
+          item._id !== requestId
+            ? item
+            : {
+                ...item,
+                followUps: item.followUps.filter((task) => task.id !== followUpId),
+                history: [...item.history, { id: id("followup-delete"), label: "Rappel supprimé", createdAt: now }],
+                updatedAt: now,
+              },
+        ),
+      );
+    },
+    [],
+  );
   const archiveRequest = useCallback(async (requestId: string) => {
     const now = Date.now();
     setRequests((current) =>
@@ -1846,6 +1827,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       saveCatalogItem,
       deleteCatalogItem,
       completeFollowUp,
+      deleteFollowUp,
       archiveRequest,
       restoreRequest,
       deleteRequest,
@@ -1903,6 +1885,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
     catalog,
     closeRequest,
     completeFollowUp,
+    deleteFollowUp,
     confirmService,
     createQuoteVersion,
     createRequest,

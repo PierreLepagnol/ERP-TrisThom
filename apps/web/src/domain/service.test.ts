@@ -4,13 +4,13 @@ import { expect, test } from "bun:test";
 import { getCurrentQuoteVersion, getOperationalServices } from "./service";
 
 const now = new Date(2026, 6, 22, 10).getTime();
-const request = (id: string, eventDate: number) => ({ _id: id, status: "accepte" as const, eventDate });
+const request = (id: string, eventDate: number, status = "accepte") => ({ _id: id, status, eventDate });
 
 test("lists confirmed upcoming services separately from recently completed ones", () => {
   const result = getOperationalServices([
     request("future", now + 2 * 86_400_000),
-    request("recent", now - 5 * 86_400_000),
-    request("old", now - 31 * 86_400_000),
+    request("recent", now - 5 * 86_400_000, "termine"),
+    request("old", now - 31 * 86_400_000, "termine"),
   ] as any, now);
 
   expect(result.upcoming.map((item) => item._id)).toEqual(["future"]);

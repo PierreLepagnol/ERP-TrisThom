@@ -14,6 +14,7 @@ const requestStatus = v.union(
   v.literal("devis_envoye"),
   v.literal("relance"),
   v.literal("accepte"),
+  v.literal("termine"),
   v.literal("refuse"),
   v.literal("annule"),
 );
@@ -127,6 +128,7 @@ const seedRequest = v.object({
   archivedAt: v.optional(v.number()),
   followUps: v.array(v.object({
     id: v.string(),
+    kind: v.union(v.literal("relance_j3"), v.literal("relance_j7"), v.literal("manuel")),
     title: v.string(),
     dueAt: v.number(),
     completedAt: v.optional(v.number()),
@@ -181,8 +183,15 @@ const allowedTransitions: Record<RequestStatus, readonly RequestStatus[]> = {
   devis_envoye: ["devis_envoye", "relance", "accepte", "refuse", "annule"],
   relance: ["relance", "devis_envoye", "accepte", "refuse", "annule"],
   accepte: ["accepte", "annule"],
+  termine: ["termine"],
   refuse: ["refuse"],
   annule: ["annule"],
+};
+
+const statusLabel: Record<RequestStatus, string> = {
+  nouveau: "Nouveau", a_qualifier: "Nouveau", qualifie: "Devis à préparer",
+  devis_a_preparer: "Devis à préparer", devis_envoye: "En attente client", relance: "En attente client",
+  accepte: "Confirmé", termine: "Terminé", refuse: "Perdu", annule: "Annulé",
 };
 
 async function requireAuthenticatedUser(
@@ -491,6 +500,7 @@ export const workspace = query({
           })),
           followUps: (followUpsByRequest.get(request._id) ?? []).map((task) => ({
             id: task._id,
+            kind: task.kind,
             title: task.title,
             dueAt: task.dueAt,
             completedAt: task.completedAt,
@@ -560,26 +570,16 @@ export const updateStatus = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    if (!allowedTransitions[request.status].includes(args.status)) {
-      throw new Error("Cette transition de statut n’est pas autorisée.");
-    }
     const now = Date.now();
-    if (args.status === "accepte" && (!request.eventDate || !args.eventStartTime || !args.eventEndTime)) {
-      throw new Error("La date et les horaires sont obligatoires avant confirmation.");
-    }
     await ctx.db.patch(request._id, {
       status: args.status,
       eventStartTime: args.eventStartTime ?? request.eventStartTime,
       eventEndTime: args.eventEndTime ?? request.eventEndTime,
       acceptedAt: args.status === "accepte" ? now : request.acceptedAt,
-      nextActionAt: args.status === "devis_envoye" ? now + 3 * 86_400_000 : request.nextActionAt,
       calendarSyncStatus: args.status === "accepte" ? "pending" : request.calendarSyncStatus,
       updatedAt: now,
     });
-    if (args.status === "devis_envoye" && request.status !== "devis_envoye") {
-      await createFollowUps(ctx, request, now);
-    }
-    await addHistory(ctx, request._id, `Statut modifié : ${args.status.replaceAll("_", " ")}`, now);
+    await addHistory(ctx, request._id, `Statut : ${statusLabel[request.status]} → ${statusLabel[args.status]}`, now);
     return null;
   },
 });
@@ -595,6 +595,7 @@ export const reopenCancelledRequest = mutation({
       v.literal("devis_envoye"),
       v.literal("relance"),
       v.literal("accepte"),
+      v.literal("termine"),
       v.literal("refuse"),
     ),
   },
@@ -739,22 +740,23 @@ export const startQuotePreparation = mutation({
 });
 
 export const scheduleFollowUp = mutation({
-  args: { requestId: v.id("requests"), dueAt: v.number() },
+  args: { requestId: v.id("requests"), title: v.string(), dueAt: v.number() },
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    if (request.status !== "devis_envoye" && request.status !== "relance") {
-      throw new Error("Une relance ne peut être programmée qu’après l’envoi du devis.");
-    }
+    const title = args.title.trim();
+    if (!title) throw new Error("Le libellé du rappel est obligatoire.");
+    if (title.length > 200) throw new Error("Le libellé du rappel ne peut pas dépasser 200 caractères.");
+    if (!Number.isFinite(args.dueAt)) throw new Error("La date du rappel est invalide.");
     const now = Date.now();
     await ctx.db.insert("followUpTasks", {
       requestId: request._id,
       kind: "manuel",
-      title: `Relancer ${request.contactName}`,
+      title,
       dueAt: args.dueAt,
       createdAt: now,
     });
-    await ctx.db.patch(request._id, { status: "devis_envoye", nextActionAt: args.dueAt, updatedAt: now });
+    await ctx.db.patch(request._id, { updatedAt: now });
     await addHistory(ctx, request._id, "Relance programmée", now);
     return null;
   },
@@ -800,11 +802,26 @@ export const completeFollowUp = mutation({
     await requireAuthenticatedUser(ctx);
     await getRequestOrThrow(ctx, args.requestId);
     const task = await ctx.db.get(args.followUpId);
-    if (!task || task.requestId !== args.requestId) throw new Error("Relance introuvable.");
+    if (!task || task.requestId !== args.requestId) throw new Error("Rappel introuvable.");
     const now = Date.now();
     await ctx.db.patch(task._id, { completedAt: now });
     await ctx.db.patch(args.requestId, { updatedAt: now });
     await addHistory(ctx, args.requestId, "Relance marquée comme effectuée", now);
+    return null;
+  },
+});
+
+export const deleteFollowUp = mutation({
+  args: { requestId: v.id("requests"), followUpId: v.id("followUpTasks") },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    await getRequestOrThrow(ctx, args.requestId);
+    const task = await ctx.db.get(args.followUpId);
+    if (!task || task.requestId !== args.requestId) throw new Error("Rappel introuvable.");
+    const now = Date.now();
+    await ctx.db.delete(task._id);
+    await ctx.db.patch(args.requestId, { updatedAt: now });
+    await addHistory(ctx, args.requestId, "Rappel supprimé", now);
     return null;
   },
 });

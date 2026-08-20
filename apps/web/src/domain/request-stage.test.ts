@@ -12,11 +12,12 @@ test("groups every legacy active status into its user stage", () => {
   for (const status of ["devis_envoye", "relance"] as const) expect(getRequestStage({ status }, today)).toBe("devis_envoye");
 });
 
-test("derives accepted work from the event date", () => {
+test("keeps confirmed work confirmed until the user explicitly marks it completed", () => {
   expect(getRequestStage({ status: "accepte", eventDate: today }, today)).toBe("confirme");
   expect(getRequestStage({ status: "accepte", eventDate: tomorrow }, today)).toBe("confirme");
-  expect(getRequestStage({ status: "accepte", eventDate: yesterday }, today)).toBe("termine");
+  expect(getRequestStage({ status: "accepte", eventDate: yesterday }, today)).toBe("confirme");
   expect(getRequestStage({ status: "accepte" }, today)).toBe("confirme");
+  expect(getRequestStage({ status: "termine", eventDate: tomorrow }, today)).toBe("termine");
 });
 
 test("keeps refused and cancelled requests in history", () => {

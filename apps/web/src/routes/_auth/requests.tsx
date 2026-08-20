@@ -7,15 +7,16 @@ import { z } from "zod";
 
 import { api } from "@ERPTrisThom/backend/convex/_generated/api";
 import { TimeSelect } from "@/components/time-select";
+import { RequestSourceBadge } from "@/components/crm/request-source-badge";
+import { RequestStatusBadge } from "@/components/crm/request-status-badge";
 
-import { getRequestStage, requestStageConfig } from "@/domain/request-stage";
-import { matchesRequestSearch, sortRequests } from "@/domain/request-list";
+import { commercialStatusValues, normalizeRequestStatus, requestStatusConfig, type CommercialStatus } from "@/domain/request-status";
+import { matchesRequestSearch, matchesRequestView, sortRequests, type RequestListView } from "@/domain/request-list";
 import { useConvexCrm } from "@/lib/convex-crm";
 import type { LocalRequest } from "@/lib/local-crm";
 
 const sources = ["manuel", "telephone", "1001traiteur"] as const;
 type Source = (typeof sources)[number];
-type RequestTab = "a_traiter" | "devis_envoye" | "confirme" | "termine" | "historique";
 
 const sourceLabels: Record<string, string> = {
   manuel: "Saisie manuelle",
@@ -37,7 +38,7 @@ export const Route = createFileRoute("/_auth/requests")({
 function RequestsPage() {
   const searchParams = Route.useSearch();
   const navigate = useNavigate();
-  const { requests, archivedRequests, quotes, createRequest, deleteRequest } = useConvexCrm();
+  const { requests, archivedRequests, quotes, createRequest, deleteRequest, updateStatus } = useConvexCrm();
   const import1001Pdf = useAction(api.pdfImport.import1001Pdf);
   const createImportedRequest = useMutation(api.crm.createRequest);
   const [isCreating, setIsCreating] = useState(Boolean(searchParams.nouveau));
@@ -45,10 +46,11 @@ function RequestsPage() {
   const [creationMode, setCreationMode] = useState<"manual" | "pdf">("manual");
   const [pdfAnalysis, setPdfAnalysis] = useState<PdfAnalysis | null>(null);
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<RequestTab>("a_traiter");
+  const [view, setView] = useState<RequestListView>("active");
+  const [statusFilter, setStatusFilter] = useState<"all" | CommercialStatus>("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | LocalRequest["source"]>("all");
   const [requestToDelete, setRequestToDelete] = useState<LocalRequest | null>(null);
-  const [sort, setSort] = useState<"priority" | "nextAction" | "eventDate" | "receivedAt" | "amount">("priority");
-  void setSort;
+  const [sort, setSort] = useState<"eventDate" | "eventDateDesc" | "receivedAt" | "receivedAtAsc">("eventDate");
   const location = useLocation();
 
   if (location.pathname !== "/requests") return <Outlet />;
@@ -146,17 +148,13 @@ function RequestsPage() {
   }
 
   const allRequests = useMemo(() => [...(requests ?? []), ...(archivedRequests ?? [])], [archivedRequests, requests]);
-  const displayedRequests = tab === "historique" ? allRequests : requests;
-  const filteredRequests = useMemo(() => (displayedRequests ?? []).filter((request) => {
-    const stage = getRequestStage(request);
-    const matchesTab = tab === "historique" ? stage === "termine" || stage === "perdu" : stage === tab;
-    return matchesTab && matchesRequestSearch(request, search, quotes.find((quote) => quote.requestId === request._id));
-  }), [displayedRequests, quotes, search, tab]);
+  const displayedRequests = view === "history" ? allRequests : requests;
+  const filteredRequests = useMemo(() => (displayedRequests ?? []).filter((request) => matchesRequestView(request, view) && (statusFilter === "all" || normalizeRequestStatus(request.status) === statusFilter) && (sourceFilter === "all" || request.source === sourceFilter) && matchesRequestSearch(request, search, quotes.find((quote) => quote.requestId === request._id))), [displayedRequests, quotes, search, sourceFilter, statusFilter, view]);
   const sortedRequests = useMemo(() => sortRequests(filteredRequests, sort), [filteredRequests, sort]);
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4">
+      <section className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="font-serif text-4xl font-bold">Demandes</h1>
         <button
           type="button"
@@ -177,9 +175,12 @@ function RequestsPage() {
 
       <section className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
         <div className="border-b border-stone-100 px-5 py-4 sm:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">{([ ["a_traiter", "À traiter"], ["devis_envoye", "En attente client"], ["confirme", "Confirmées"], ["termine", "Terminées"] ] as const).map(([value, label]) => <QuickFilterButton key={value} active={tab === value} onClick={() => setTab(value)}>{label}</QuickFilterButton>)}<button type="button" onClick={() => setTab("historique")} className="px-2 py-1.5 text-xs font-bold text-stone-500 hover:text-[#8b1629]">Historique</button></div>
-            <input aria-label="Rechercher une demande" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher" className="input w-full sm:w-56" />
+          <div className="flex flex-wrap items-center gap-2">
+            <input aria-label="Rechercher une demande" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher une demande" className="input w-full sm:w-64" />
+            <select aria-label="Vue" value={view} onChange={(event) => setView(event.target.value as RequestListView)} className="input"><option value="active">Tous les actifs ({requests.length})</option><option value="week">Cette semaine</option><option value="without_date">Sans date</option><option value="history">Historique</option></select>
+            <select aria-label="Statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | CommercialStatus)} className="input"><option value="all">Tous les statuts</option>{commercialStatusValues.map((status) => <option key={status} value={status}>{requestStatusConfig[status].label}</option>)}</select>
+            <select aria-label="Source" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | LocalRequest["source"])} className="input"><option value="all">Toutes les sources</option>{Object.entries(sourceLabels).map(([source, label]) => <option key={source} value={source}>{label}</option>)}</select>
+            <select aria-label="Trier" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="input"><option value="eventDate">Date événement ↑</option><option value="eventDateDesc">Date événement ↓</option><option value="receivedAt">Plus récentes</option><option value="receivedAtAsc">Plus anciennes</option></select>
           </div>
         </div>
         {!displayedRequests ? (
@@ -190,7 +191,7 @@ function RequestsPage() {
           <p className="px-6 py-10 text-sm text-stone-500">Aucune demande ne correspond à votre recherche.</p>
         ) : (
           <div className="divide-y divide-stone-100">
-            {sortedRequests.map((request) => <RequestRow key={request._id} request={request} quote={quotes.find((quote) => quote.requestId === request._id)} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} onDelete={() => setRequestToDelete(request)} />)}
+            {sortedRequests.map((request) => <RequestRow key={request._id} request={request} onOpen={() => navigate({ to: "/requests/$requestId", params: { requestId: request._id } })} onDelete={() => setRequestToDelete(request)} onStatusChange={(status) => void updateStatus({ requestId: request._id, status })} />)}
           </div>
         )}
       </section>
@@ -199,16 +200,9 @@ function RequestsPage() {
   );
 }
 
-function QuickFilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onClick} className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${active ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{children}</button>;
-}
-
-function RequestRow({ request, onOpen, onDelete, quote }: { request: LocalRequest; quote?: { quoteNumber: string }; onOpen: () => void; onDelete: () => void }) {
-  void quote;
-  const followUp = request.followUps.find((item) => !item.completedAt);
-  const nextAction = followUp?.title ?? (request.status === "nouveau" ? "Répondre à la demande" : request.status === "devis_a_preparer" ? "Préparer le devis" : request.status === "devis_envoye" || request.status === "relance" ? "Attendre le retour client" : request.status === "accepte" ? "Préparer la prestation" : "Suivre le dossier");
-  const stage = getRequestStage(request);
-  return <article onClick={onOpen} className="grid cursor-pointer gap-3 px-5 py-4 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(12rem,.65fr)_auto] md:items-center"><div className="min-w-0"><h3 className="truncate font-semibold">{request.contactName}</h3><p className="mt-1 truncate text-sm text-stone-600">{request.eventType || "Événement à préciser"} <span className="text-stone-300">·</span> {request.eventDate ? dateFormat.format(request.eventDate) : "date à préciser"} <span className="text-stone-300">·</span> {request.guestCount ? `${request.guestCount} pers.` : "personnes à préciser"}</p><p className="mt-1 text-xs text-stone-400">{sourceLabels[request.source] ?? request.source}</p></div><div className="min-w-0"><span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${requestStageConfig[stage].badgeClassName}`}>{stage === "devis_envoye" ? "En attente client" : requestStageConfig[stage].label}</span><p className="mt-2 truncate text-sm font-semibold text-stone-700">→ {nextAction}</p></div><div className="flex items-center justify-end gap-2"><details onClick={(event) => event.stopPropagation()} className="relative"><summary aria-label={`Actions pour ${request.contactName}`} className="list-none rounded-md p-2 text-stone-500 hover:bg-stone-100"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-stone-200 bg-white p-1 shadow-lg"><button type="button" onClick={onDelete} className="w-full rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details><ChevronRight className="size-5 text-stone-300" /></div></article>;
+function RequestRow({ request, onOpen, onDelete, onStatusChange }: { request: LocalRequest; onOpen: () => void; onDelete: () => void; onStatusChange: (status: CommercialStatus) => void }) {
+  const status = normalizeRequestStatus(request.status);
+  return <article onClick={onOpen} className="grid cursor-pointer gap-3 px-5 py-3.5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><h3 className="truncate font-semibold">{request.contactName}</h3><p className="mt-1 truncate text-sm text-stone-600">{request.eventType || "Événement à préciser"} · <strong className="text-stone-800">{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</strong>{request.guestCount ? ` · ${request.guestCount} pers.` : ""}</p><div className="mt-2"><RequestSourceBadge source={request.source} /></div></div><div className="flex items-center justify-end gap-2"><div className="hidden sm:block"><RequestStatusBadge status={request.status} /></div><select aria-label={`Statut de ${request.contactName}`} value={status} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); onStatusChange(event.target.value as CommercialStatus); }} className="input max-w-40 text-sm font-bold">{commercialStatusValues.map((value) => <option key={value} value={value}>{requestStatusConfig[value].label}</option>)}</select><details onClick={(event) => event.stopPropagation()} className="relative"><summary aria-label={`Actions pour ${request.contactName}`} className="list-none rounded-md p-2 text-stone-500 hover:bg-stone-100"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-stone-200 bg-white p-1 shadow-lg"><button type="button" onClick={onDelete} className="w-full rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details><ChevronRight className="size-5 text-stone-300" /></div></article>;
 }
 
 function DeleteRequestDialog({ request, onClose, onConfirm }: { request: LocalRequest; onClose: () => void; onConfirm: () => Promise<void> }) {

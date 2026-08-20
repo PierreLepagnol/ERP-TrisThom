@@ -9,6 +9,7 @@ const requestStatus = v.union(
   v.literal("devis_envoye"),
   v.literal("relance"),
   v.literal("accepte"),
+  v.literal("termine"),
   v.literal("refuse"),
   v.literal("annule"),
 );

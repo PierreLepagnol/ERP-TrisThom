@@ -47,6 +47,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
   const saveCatalogItemMutation = useMutation(api.crm.saveCatalogItem);
   const deleteCatalogItemMutation = useMutation(api.crm.deleteCatalogItem);
   const completeFollowUpMutation = useMutation(api.crm.completeFollowUp);
+  const deleteFollowUpMutation = useMutation(api.crm.deleteFollowUp);
   const archiveRequestMutation = useMutation(api.crm.archiveRequest);
   const deleteRequestMutation = useMutation(api.crm.deleteRequest);
   const clearAllRequestsMutation = useMutation(api.crm.clearAllRequests);
@@ -177,8 +178,14 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
   );
 
   const scheduleFollowUp = useCallback<LocalCrm["scheduleFollowUp"]>(
-    async (id, dueAt) => {
-      await scheduleFollowUpMutation({ requestId: requestId(id), dueAt });
+    async (id, title, dueAt) => {
+      const reminderDueAt = typeof title === "number" ? title : dueAt;
+      if (typeof reminderDueAt !== "number") throw new Error("La date du rappel est invalide.");
+      await scheduleFollowUpMutation({
+        requestId: requestId(id),
+        title: typeof title === "string" ? title : "Relancer le client",
+        dueAt: reminderDueAt,
+      });
     },
     [scheduleFollowUpMutation],
   );
@@ -269,6 +276,16 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
     [archiveRequestMutation],
   );
 
+  const deleteFollowUp = useCallback<LocalCrm["deleteFollowUp"]>(
+    async (id, taskId) => {
+      await deleteFollowUpMutation({
+        requestId: requestId(id),
+        followUpId: followUpId(taskId),
+      });
+    },
+    [deleteFollowUpMutation],
+  );
+
   const deleteRequest = useCallback<LocalCrm["deleteRequest"]>(
     async (id) => {
       await deleteRequestMutation({ requestId: requestId(id) });
@@ -335,6 +352,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
       saveCatalogItem,
       deleteCatalogItem,
       completeFollowUp,
+      deleteFollowUp,
       archiveRequest,
       restoreRequest,
       deleteRequest,
@@ -391,6 +409,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
     catalog,
     closeRequest,
     completeFollowUp,
+    deleteFollowUp,
     confirmService,
     createQuoteVersion,
     createRequest,
