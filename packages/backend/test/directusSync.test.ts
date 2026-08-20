@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { syncRecentDirectusQuoteRequests, type DirectusSyncAudit } from "../convex/directusSync";
+import { backfillDirectusQuoteRequests, syncRecentDirectusQuoteRequests, type DirectusSyncAudit } from "../convex/directusSync";
 import type { DirectusRequest } from "../convex/directusWebhook";
 
 function harness(records: unknown[], options: { failures?: number; status?: number } = {}) {
@@ -60,4 +60,45 @@ test("paginates the Directus backlog instead of silently stopping after 100 requ
   const app = harness(records);
   expect(await app.run()).toMatchObject({ outcome: "success", examined: 101, imported: 101 });
   expect(app.requests.size).toBe(101);
+});
+
+test("backfills only requested Directus ids and keeps ingestion idempotent", async () => {
+  const requests = new Map<string, DirectusRequest>();
+  const result = await backfillDirectusQuoteRequests(["54", "58", "60", "61"], {
+    baseUrl: "https://directus.example.test",
+    token: "static-token",
+    fetch: async (input) => {
+      const id = String(input).split("/").at(-1);
+      if (id === "60") return new Response("", { status: 404 });
+      if (id === "61") return Response.json({ data: { id } });
+      return Response.json({ data: { id, name: `Contact ${id}` } });
+    },
+    ingest: async (request) => {
+      const created = !requests.has(request.externalSourceId);
+      if (created) requests.set(request.externalSourceId, request);
+      return { created };
+    },
+  });
+
+  expect(result).toEqual({ tokenRequired: false, results: [
+    { directusItemId: "54", outcome: "created" },
+    { directusItemId: "58", outcome: "created" },
+    { directusItemId: "60", outcome: "not_found" },
+    { directusItemId: "61", outcome: "created" },
+  ] });
+  expect((await backfillDirectusQuoteRequests(["54"], {
+    baseUrl: "https://directus.example.test",
+    token: "static-token",
+    fetch: async () => Response.json({ data: { id: "54", name: "Contact 54" } }),
+    ingest: async (request) => ({ created: !requests.has(request.externalSourceId) }),
+  })).results).toEqual([{ directusItemId: "54", outcome: "already_exists" }]);
+});
+
+test("stops targeted backfill when Directus requires a missing static token", async () => {
+  const result = await backfillDirectusQuoteRequests(["54", "58"], {
+    baseUrl: "https://directus.example.test",
+    fetch: async () => new Response("", { status: 401 }),
+    ingest: async () => ({ created: true }),
+  });
+  expect(result).toEqual({ tokenRequired: true, results: [] });
 });

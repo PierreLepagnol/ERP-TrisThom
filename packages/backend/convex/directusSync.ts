@@ -1,5 +1,6 @@
 import { internal } from "./_generated/api";
 import { env, internalAction } from "./_generated/server";
+import { v } from "convex/values";
 import { parseDirectusQuoteRequest, type DirectusRequest } from "./directusWebhook";
 
 const maxAttempts = 3;
@@ -26,6 +27,13 @@ type SyncDependencies = {
   audit: (entry: DirectusSyncAudit) => Promise<void>;
   now: () => number;
 };
+
+export type DirectusBackfillResult = {
+  directusItemId: string;
+  outcome: "created" | "already_exists" | "not_found" | "invalid" | "error";
+};
+
+type BackfillDependencies = Pick<SyncDependencies, "baseUrl" | "token" | "fetch" | "ingest">;
 
 export async function syncRecentDirectusQuoteRequests({ baseUrl, token, fetch, ingest, audit, now }: SyncDependencies) {
   const receivedAt = now();
@@ -69,6 +77,33 @@ export async function syncRecentDirectusQuoteRequests({ baseUrl, token, fetch, i
   return result;
 }
 
+/** Fetches explicit Directus records for an operator-only recovery, never broadening into a full sync. */
+export async function backfillDirectusQuoteRequests(ids: string[], { baseUrl, token, fetch, ingest }: BackfillDependencies) {
+  if (!baseUrl) return { tokenRequired: false, results: ids.map((directusItemId) => ({ directusItemId, outcome: "error" as const })) };
+
+  const results: DirectusBackfillResult[] = [];
+  for (const directusItemId of ids) {
+    const response = await fetchDirectusItem({ baseUrl, token, fetch, directusItemId });
+    if (response.kind === "token_required") return { tokenRequired: true, results };
+    if (response.kind === "not_found") {
+      results.push({ directusItemId, outcome: "not_found" });
+      continue;
+    }
+    if (response.kind !== "success") {
+      results.push({ directusItemId, outcome: "error" });
+      continue;
+    }
+    const request = parseDirectusQuoteRequest(response.record);
+    if (!request || request.externalSourceId !== directusItemId) {
+      results.push({ directusItemId, outcome: "invalid" });
+      continue;
+    }
+    const ingestion = await ingest(request);
+    results.push({ directusItemId, outcome: ingestion.created ? "created" : "already_exists" });
+  }
+  return { tokenRequired: false, results };
+}
+
 async function fetchPage({ baseUrl, token, fetch, offset }: Pick<SyncDependencies, "baseUrl" | "token" | "fetch"> & { offset: number }) {
   let response: Response | undefined;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -97,6 +132,21 @@ async function fetchPage({ baseUrl, token, fetch, offset }: Pick<SyncDependencie
   }
 }
 
+async function fetchDirectusItem({ baseUrl, token, fetch, directusItemId }: Pick<SyncDependencies, "baseUrl" | "token" | "fetch"> & { directusItemId: string }) {
+  try {
+    const response = await fetch(`${baseUrl!.replace(/\/$/, "")}/items/quote_requests/${encodeURIComponent(directusItemId)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (response.status === 404) return { kind: "not_found" as const };
+    if (!token && (response.status === 401 || response.status === 403)) return { kind: "token_required" as const };
+    if (!response.ok) return { kind: "error" as const };
+    const payload: unknown = await response.json();
+    return isRecord(payload) && isRecord(payload.data) ? { kind: "success" as const, record: payload.data } : { kind: "error" as const };
+  } catch {
+    return { kind: "error" as const };
+  }
+}
+
 export const syncRecentRequests = internalAction({
   args: {},
   handler: async (ctx): Promise<unknown> => await syncRecentDirectusQuoteRequests({
@@ -106,6 +156,16 @@ export const syncRecentRequests = internalAction({
     ingest: async (request): Promise<{ created: boolean }> => await ctx.runMutation(internal.directus.ingestRequest, request),
     audit: async (entry): Promise<void> => { await ctx.runMutation(internal.directus.recordSyncAudit, entry); },
     now: Date.now,
+  }),
+});
+
+export const backfillRequests = internalAction({
+  args: { directusItemIds: v.array(v.string()) },
+  handler: async (ctx, args) => await backfillDirectusQuoteRequests(args.directusItemIds, {
+    baseUrl: env.DIRECTUS_BASE_URL,
+    token: env.DIRECTUS_STATIC_TOKEN,
+    fetch,
+    ingest: async (request): Promise<{ created: boolean }> => await ctx.runMutation(internal.directus.ingestRequest, request),
   }),
 });
 
