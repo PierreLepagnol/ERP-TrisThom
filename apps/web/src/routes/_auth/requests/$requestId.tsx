@@ -16,6 +16,7 @@ import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
 import { activeRequestStatuses, getAllowedRequestStatuses, requestStatusConfig, requestStatusValues, type RequestStatus } from "@/domain/request-status";
 import { getRequestQualification, type QualificationCriterion } from "@/domain/request-qualification";
 import { latestRequestNote, requestPrimaryAction, requestQuoteSummary, type RequestDetailTab } from "@/domain/request-detail";
+import { getRequestStage } from "@/domain/request-stage";
 import { useConvexCrm } from "@/lib/convex-crm";
 import { legacyQuoteFromVersion, type LocalRequest, type Quote } from "@/lib/local-crm";
 
@@ -139,7 +140,7 @@ function RequestDetailPage() {
   >(null);
   const [reopenDialog, setReopenDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<RequestDetailTab>("resume");
+  const [activeTab, setActiveTab] = useState<RequestDetailTab | "preparation">("resume");
 
   useEffect(() => {
     if (foundRequest) setForm(toForm(foundRequest));
@@ -161,6 +162,8 @@ function RequestDetailPage() {
   if (location.pathname.endsWith("/quote")) return <Outlet />;
   if (!foundRequest) return <EmptyRequest />;
   const request = foundRequest;
+  const requestStage = getRequestStage(request);
+  const hasPreparation = requestStage === "confirme" || requestStage === "termine";
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -184,6 +187,7 @@ function RequestDetailPage() {
   }
   async function runPrimaryAction() {
     try {
+      if (requestStage === "termine") return;
       if (nextAction.kind === "contact") {
         setMessageOpen(true);
         return;
@@ -206,6 +210,10 @@ function RequestDetailPage() {
         setActionDialog("followUp");
         return;
       }
+      if (nextAction.kind === "prepare_service" && requestStage === "confirme") {
+        setActiveTab("preparation");
+        return;
+      }
       if (nextAction.kind === "prepare_service") {
         await confirmService(request!._id);
         toast.success("Prestation confirmée");
@@ -220,6 +228,8 @@ function RequestDetailPage() {
   const quoteSummary = requestQuoteSummary(quoteRecord);
   const latestNote = latestRequestNote(request);
   const progressIndex = status.category === "lost" ? -1 : request.status === "accepte" ? activeRequestStatuses.length : activeRequestStatuses.indexOf(request.status);
+  const visibleTabs: Array<[RequestDetailTab | "preparation", string]> = [["resume", "Demande"], ["echanges", "Conversation"], ["devis", "Devis"]];
+  if (hasPreparation) visibleTabs.push(["preparation", "Préparation"]);
   const eventCards = [["Besoins particuliers", request.specialNeeds || "Aucun besoin particulier renseigné"], ["Contraintes alimentaires", request.dietaryRequirements || "Aucune contrainte renseignée"], ["Personnel / matériel", request.staffingNeeds || "Aucun besoin renseigné"]];
   return (
     <div className="space-y-6">
@@ -229,10 +239,11 @@ function RequestDetailPage() {
         <details className="relative"><summary aria-label="Autres actions" className="list-none cursor-pointer rounded-md border border-stone-200 bg-white p-2 text-stone-700"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-2 grid min-w-48 gap-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg"><button onClick={() => setEditing(true)} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Modifier</button><button onClick={() => setActionDialog("refuse")} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Marquer comme perdu</button><button onClick={() => setActionDialog("annule")} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Annuler</button><button onClick={() => setDeleteDialog(true)} className="rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details>
       </section>
       <section className="rounded-xl bg-[#650d1c] p-5 text-white shadow-sm"><p className="text-xs font-bold tracking-[.14em] text-white/60 uppercase">Prochaine action</p><h2 className="mt-2 font-serif text-2xl font-bold">{nextAction.title}</h2>{nextAction.description ? <p className="mt-2 text-sm text-white/70">{nextAction.description}</p> : null}<button onClick={() => void runPrimaryAction()} className="mt-5 rounded-md bg-white px-4 py-2 text-sm font-bold text-[#650d1c]">{nextAction.kind === "contact" ? "Préparer le message" : nextAction.kind === "quote" || nextAction.kind === "review_quote" ? "Ouvrir le devis" : "Faire cette action"}</button></section>
-      <nav aria-label="Sections du dossier" className="flex gap-1 overflow-x-auto border-b border-stone-200">{([ ["resume", "Demande"], ["echanges", "Conversation"], ["devis", "Devis"] ] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeTab === tab ? "border-[#8b1629] text-[#8b1629]" : "border-transparent text-stone-500"}`}>{label}</button>)}</nav>
+      <nav aria-label="Sections du dossier" className="flex gap-1 overflow-x-auto border-b border-stone-200">{visibleTabs.map(([tab, label]) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeTab === tab ? "border-[#8b1629] text-[#8b1629]" : "border-transparent text-stone-500"}`}>{label}</button>)}</nav>
       {activeTab === "resume" ? <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><h2 className="font-serif text-2xl font-bold">Demande</h2><button onClick={() => setEditing(true)} className="text-sm font-bold text-[#8b1629]">Modifier</button></div><dl className="mt-5 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2"><Info label="Client" value={request.organizationName || request.contactName} /><Info label="E-mail" value={request.contactEmail} /><Info label="Téléphone" value={request.contactPhone} /><Info label="Type d’événement" value={request.eventType} /><Info label="Date" value={request.eventDate ? dateFormat.format(request.eventDate) : undefined} /><Info label="Nombre de personnes" value={request.guestCount ? `${request.guestCount}` : undefined} /><Info label="Adresse" value={request.eventAddress || request.venue} /><Info label="Source" value={sourceLabels[request.source]} /></dl>{request.message ? <div className="mt-6 border-t border-stone-100 pt-5"><p className="text-xs font-bold tracking-wide text-stone-400 uppercase">Message du client</p><p className="mt-2 whitespace-pre-wrap text-sm text-stone-700">{request.message}</p></div> : null}</section> : null}
       {activeTab === "echanges" ? <div className="space-y-5"><ChangeSuggestions requestId={request._id as Id<"requests">} /><EmailConversation messages={emailMessages ?? []} onReply={() => setMessageOpen(true)} /><Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} /></div> : null}
       {activeTab === "devis" ? <div className="space-y-5"><QuoteSummaryCard quote={quoteRecord} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} onCreateVersion={async () => { if (!quoteRecord) { await quote(); return; } const current = quoteRecord.versions.find((item) => item.id === quoteRecord.currentVersionId); if (!current) return; await createQuoteVersion(request._id, legacyQuoteFromVersion(current, quoteRecord.versions, quoteRecord.quoteNumber)); toast.success("Nouvelle version créée"); navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } }); }} /><QuoteVersions quote={quoteRecord} requestId={request._id} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} /><RequestDocuments requestId={request._id as Id<"requests">} /></div> : null}
+      {activeTab === "preparation" && hasPreparation ? <Preparation request={request} quote={quoteRecord} /> : null}
       {editing ? <RequestInformation form={form} setForm={setForm} onSave={save} onCancel={() => { setForm(toForm(request)); setEditing(false); }} /> : null}
       {messageOpen && <MessageModal initial={draftMessage} recipient={request.contactEmail} subject={emailSubject(emailMessages ?? [])} templates={[...builtInEmailTemplates, ...(emailTemplates ?? [])]} onClose={() => setMessageOpen(false)} onSaveTemplate={async (name, subject, body) => { await saveEmailTemplate({ name, subject, body }); toast.success("Modèle d’e-mail enregistré"); }} onSend={async (subject, body, attachments) => { if (!request.contactEmail) throw new Error("Ajoutez l’adresse e-mail du client avant d’envoyer."); const lastMessage = (emailMessages ?? []).at(-1); await sendEmail({ requestId: request._id as Id<"requests">, recipientEmail: request.contactEmail, subject, body, inReplyTo: lastMessage?.messageId, attachments }); toast.success("E-mail envoyé et ajouté au dossier"); setMessageOpen(false); }} />}
       {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande marquée comme perdue" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
@@ -390,7 +401,7 @@ function RequestDetailPage() {
             <p className="text-xs font-bold tracking-[.14em] text-white/60 uppercase">
               Prochaine action
             </p>
-            <h2 className="mt-2 font-serif text-2xl font-bold">{nextAction.title}</h2>
+<h2 className="mt-2 font-serif text-2xl font-bold">{requestStage === "termine" ? "Prestation terminée" : nextAction.title}</h2>
             <p className="mt-2 text-sm text-white/70">{nextAction.description}</p>
             {nextAction.kind === "contact" ? (
               <button onClick={() => setMessageOpen(true)} className="mt-5 w-full rounded-md bg-white px-3 py-2 text-sm font-bold text-[#650d1c]">
@@ -515,6 +526,23 @@ function RequestDetailPage() {
       {deleteDialog ? <DeleteRequestDialog request={request} onClose={() => setDeleteDialog(false)} onConfirm={async () => { try { await deleteRequest(request._id); toast.success("Demande supprimée"); await navigate({ to: "/requests" }); } catch (error) { toast.error(error instanceof Error ? error.message : "Impossible de supprimer la demande"); } }} /> : null}
     </div>
   );
+}
+
+function Preparation({ request, quote }: { request: LocalRequest; quote?: Quote }) {
+  const currentVersion = quote?.versions.find((version) => version.id === quote.currentVersionId);
+  const usefulInfo = [
+    ["Besoins particuliers", request.specialNeeds],
+    ["Contraintes alimentaires", request.dietaryRequirements],
+    ["Personnel / matériel", request.staffingNeeds],
+    ["Notes importantes", request.notes.at(-1)?.content],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+  const eventTime = [request.eventStartTime, request.eventEndTime].filter(Boolean).join(" – ");
+  return <div className="space-y-5">
+    <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><h2 className="font-serif text-2xl font-bold">Préparation</h2><dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2"><Info label="Date" value={request.eventDate ? dateFormat.format(request.eventDate) : undefined} /><Info label="Horaires" value={eventTime || undefined} /><Info label="Adresse" value={request.eventAddress || request.venue} /><Info label="Nombre de personnes" value={request.guestCount ? `${request.guestCount} personnes` : undefined} />{quote ? <Info label="Devis accepté" value={`${quote.quoteNumber} · ${(quote.totalTtcCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}`} /> : null}</dl></section>
+    <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><h2 className="font-serif text-xl font-bold">À préparer</h2>{currentVersion?.lines.length ? <ul className="mt-4 divide-y divide-stone-100">{currentVersion.lines.map((line) => <li key={line.id} className="py-3"><p className="font-semibold">{line.label} <span className="text-stone-500">· {line.quantity}{line.unit ? ` ${line.unit}` : ""}</span></p>{line.details?.length ? <p className="mt-1 text-sm text-stone-500">{line.details.join(" · ")}</p> : null}</li>)}</ul> : <p className="mt-3 text-sm text-stone-500">Aucun élément de devis à préparer pour le moment.</p>}</section>
+    {usefulInfo.length ? <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><h2 className="font-serif text-xl font-bold">Informations utiles</h2><dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">{usefulInfo.map(([label, value]) => <Info key={label} label={label} value={value} />)}</dl></section> : null}
+    <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><h2 className="font-serif text-xl font-bold">Logistique</h2><dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2"><Info label="Lieu" value={request.eventAddress || request.venue} /><Info label="Horaires" value={eventTime || undefined} /><Info label="Invités" value={request.guestCount ? `${request.guestCount} personnes` : undefined} /></dl></section>
+  </div>;
 }
 
 function Info({ label, value }: { label: string; value?: string }) {
