@@ -30,7 +30,9 @@ import type * as magicLinkEmail from "../magicLinkEmail.js";
 import type * as pdfImport from "../pdfImport.js";
 import type * as privateData from "../privateData.js";
 import type * as requestDeletion from "../requestDeletion.js";
+import type * as requestDocuments from "../requestDocuments.js";
 import type * as requestParsing from "../requestParsing.js";
+import type * as requestReview from "../requestReview.js";
 
 import type {
   ApiFromModules,
@@ -61,7 +63,9 @@ declare const fullApi: ApiFromModules<{
   pdfImport: typeof pdfImport;
   privateData: typeof privateData;
   requestDeletion: typeof requestDeletion;
+  requestDocuments: typeof requestDocuments;
   requestParsing: typeof requestParsing;
+  requestReview: typeof requestReview;
 }>;
 
 /**

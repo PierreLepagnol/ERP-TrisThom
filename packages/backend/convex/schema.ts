@@ -138,6 +138,14 @@ export default defineSchema({
     .index("by_requestId_and_status", ["requestId", "status"])
     .index("by_inboxMessageId", ["inboxMessageId"]),
 
+  requestDocuments: defineTable({
+    requestId: v.id("requests"),
+    storageId: v.id("_storage"),
+    filename: v.string(),
+    sizeBytes: v.number(),
+    createdAt: v.number(),
+  }).index("by_requestId_and_createdAt", ["requestId", "createdAt"]),
+
   inboxImportState: defineTable({
     key: v.literal("email_import"),
     enabledAt: v.number(),

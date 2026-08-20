@@ -231,8 +231,8 @@ function RequestDetailPage() {
       <section className="rounded-xl bg-[#650d1c] p-5 text-white shadow-sm"><p className="text-xs font-bold tracking-[.14em] text-white/60 uppercase">Prochaine action</p><h2 className="mt-2 font-serif text-2xl font-bold">{nextAction.title}</h2>{nextAction.description ? <p className="mt-2 text-sm text-white/70">{nextAction.description}</p> : null}<button onClick={() => void runPrimaryAction()} className="mt-5 rounded-md bg-white px-4 py-2 text-sm font-bold text-[#650d1c]">{nextAction.kind === "contact" ? "Préparer le message" : nextAction.kind === "quote" || nextAction.kind === "review_quote" ? "Ouvrir le devis" : "Faire cette action"}</button></section>
       <nav aria-label="Sections du dossier" className="flex gap-1 overflow-x-auto border-b border-stone-200">{([ ["resume", "Demande"], ["echanges", "Conversation"], ["devis", "Devis"] ] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeTab === tab ? "border-[#8b1629] text-[#8b1629]" : "border-transparent text-stone-500"}`}>{label}</button>)}</nav>
       {activeTab === "resume" ? <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><h2 className="font-serif text-2xl font-bold">Demande</h2><button onClick={() => setEditing(true)} className="text-sm font-bold text-[#8b1629]">Modifier</button></div><dl className="mt-5 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2"><Info label="Client" value={request.organizationName || request.contactName} /><Info label="E-mail" value={request.contactEmail} /><Info label="Téléphone" value={request.contactPhone} /><Info label="Type d’événement" value={request.eventType} /><Info label="Date" value={request.eventDate ? dateFormat.format(request.eventDate) : undefined} /><Info label="Nombre de personnes" value={request.guestCount ? `${request.guestCount}` : undefined} /><Info label="Adresse" value={request.eventAddress || request.venue} /><Info label="Source" value={sourceLabels[request.source]} /></dl>{request.message ? <div className="mt-6 border-t border-stone-100 pt-5"><p className="text-xs font-bold tracking-wide text-stone-400 uppercase">Message du client</p><p className="mt-2 whitespace-pre-wrap text-sm text-stone-700">{request.message}</p></div> : null}</section> : null}
-      {activeTab === "echanges" ? <div className="space-y-5"><EmailConversation messages={emailMessages ?? []} /><Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} />{request.followUps.length > 0 ? <FollowUps request={request} onComplete={async (followUpId) => { await completeFollowUp(request._id, followUpId); toast.success("Relance marquée comme effectuée"); }} /> : null}</div> : null}
-      {activeTab === "devis" ? <QuoteSummaryCard quote={quoteRecord} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} onCreateVersion={async () => { if (!quoteRecord) { await quote(); return; } const current = quoteRecord.versions.find((item) => item.id === quoteRecord.currentVersionId); if (!current) return; await createQuoteVersion(request._id, legacyQuoteFromVersion(current, quoteRecord.versions, quoteRecord.quoteNumber)); toast.success("Nouvelle version créée"); navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } }); }} /> : null}
+      {activeTab === "echanges" ? <div className="space-y-5"><ChangeSuggestions requestId={request._id as Id<"requests">} /><EmailConversation messages={emailMessages ?? []} onReply={() => setMessageOpen(true)} /><Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} /></div> : null}
+      {activeTab === "devis" ? <div className="space-y-5"><QuoteSummaryCard quote={quoteRecord} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} onCreateVersion={async () => { if (!quoteRecord) { await quote(); return; } const current = quoteRecord.versions.find((item) => item.id === quoteRecord.currentVersionId); if (!current) return; await createQuoteVersion(request._id, legacyQuoteFromVersion(current, quoteRecord.versions, quoteRecord.quoteNumber)); toast.success("Nouvelle version créée"); navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } }); }} /><QuoteVersions quote={quoteRecord} requestId={request._id} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} /><RequestDocuments requestId={request._id as Id<"requests">} /></div> : null}
       {editing ? <RequestInformation form={form} setForm={setForm} onSave={save} onCancel={() => { setForm(toForm(request)); setEditing(false); }} /> : null}
       {messageOpen && <MessageModal initial={draftMessage} recipient={request.contactEmail} subject={emailSubject(emailMessages ?? [])} templates={[...builtInEmailTemplates, ...(emailTemplates ?? [])]} onClose={() => setMessageOpen(false)} onSaveTemplate={async (name, subject, body) => { await saveEmailTemplate({ name, subject, body }); toast.success("Modèle d’e-mail enregistré"); }} onSend={async (subject, body, attachments) => { if (!request.contactEmail) throw new Error("Ajoutez l’adresse e-mail du client avant d’envoyer."); const lastMessage = (emailMessages ?? []).at(-1); await sendEmail({ requestId: request._id as Id<"requests">, recipientEmail: request.contactEmail, subject, body, inReplyTo: lastMessage?.messageId, attachments }); toast.success("E-mail envoyé et ajouté au dossier"); setMessageOpen(false); }} />}
       {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande marquée comme perdue" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
@@ -590,6 +590,12 @@ function QuoteSummaryCard({
   return <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold tracking-[.14em] text-[#7d6f67] uppercase">Devis</p><h2 className="mt-1 font-serif text-2xl font-bold">{quote.quoteNumber}</h2><p className="mt-1 text-sm text-stone-500">Version {current?.versionNumber ?? "—"} · {quote.status}</p></div><strong className="font-serif text-xl text-[#650d1c]">{(quote.totalTtcCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</strong></div><dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2"><div><dt className="text-stone-500">Créé le</dt><dd className="font-semibold">{date.format(quote.createdAt)}</dd></div><div><dt className="text-stone-500">Dernière modification</dt><dd className="font-semibold">{date.format(quote.updatedAt)}</dd></div>{quote.sentAt ? <div><dt className="text-stone-500">Envoyé le</dt><dd className="font-semibold">{date.format(quote.sentAt)}</dd></div> : null}{current?.validUntil ? <div><dt className="text-stone-500">Valable jusqu’au</dt><dd className="font-semibold">{date.format(current.validUntil)}</dd></div> : null}</dl><div className="mt-5 flex flex-wrap gap-2"><button onClick={onOpen} className="rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white">Voir le devis</button><button onClick={onOpen} className="rounded-md border border-stone-200 px-3 py-2 text-sm font-bold">Modifier</button><button onClick={() => void onCreateVersion()} className="rounded-md border border-[#8b1629] px-3 py-2 text-sm font-bold text-[#8b1629]">Créer une nouvelle version</button><button onClick={onOpen} className="rounded-md border border-stone-200 px-3 py-2 text-sm font-bold">Voir les versions ({quote.versions.length})</button></div></section>;
 }
 
+function QuoteVersions({ quote, requestId, onOpen }: { quote?: Quote; requestId: string; onOpen: () => void }) {
+  if (!quote?.versions.length) return null;
+  const date = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  return <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><h2 className="font-serif text-xl font-bold">Versions</h2><ul className="mt-4 divide-y divide-stone-100">{quote.versions.slice().sort((left, right) => right.versionNumber - left.versionNumber).map((version) => <li key={version.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{quote.quoteNumber} · version {version.versionNumber}</p><p className="mt-1 text-xs text-stone-500">{date.format(version.updatedAt)} · {version.status}</p></div><div className="flex gap-3 text-sm font-bold"><button type="button" onClick={onOpen} className="text-[#8b1629]">Ouvrir le devis</button><button type="button" onClick={() => window.open(`/print/requests/${requestId}/quote?version=${encodeURIComponent(version.id)}`, "_blank", "noopener,noreferrer")} className="text-[#8b1629]">Ouvrir le PDF</button></div></li>)}</ul></section>;
+}
+
 function RequestInformation({
   form,
   setForm,
@@ -718,7 +724,40 @@ function emailSubject(messages: EmailMessage[]) {
   return /^re:/i.test(latestSubject) ? latestSubject : `Re: ${latestSubject}`;
 }
 
-function EmailConversation({ messages }: { messages: EmailMessage[] }) {
+function ChangeSuggestions({ requestId }: { requestId: Id<"requests"> }) {
+  const suggestions = useQuery(api.requestReview.listPending, { requestId });
+  const decide = useMutation(api.requestReview.decide);
+  if (!suggestions?.length) return null;
+  return <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-5"><h2 className="font-serif text-xl font-bold">Modifications détectées</h2><div className="mt-4 space-y-3">{suggestions.map((suggestion) => <div key={suggestion._id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3"><p className="text-sm"><strong>{suggestionLabel(suggestion.field)}</strong> : {suggestion.currentValue || "—"} → {suggestion.proposedValue}</p><div className="flex gap-2"><button type="button" onClick={() => void decide({ suggestionId: suggestion._id, decision: "apply" })} className="rounded-md bg-[#650d1c] px-3 py-2 text-xs font-bold text-white">Appliquer</button><button type="button" onClick={() => void decide({ suggestionId: suggestion._id, decision: "ignore" })} className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold">Ignorer</button></div></div>)}</div></section>;
+}
+
+function RequestDocuments({ requestId }: { requestId: Id<"requests"> }) {
+  const documents = useQuery(api.requestDocuments.list, { requestId });
+  const generateUploadUrl = useMutation(api.requestDocuments.generateUploadUrl);
+  const save = useMutation(api.requestDocuments.save);
+  const remove = useMutation(api.requestDocuments.remove);
+  const [uploading, setUploading] = useState(false);
+  async function upload(file: File) {
+    if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) return toast.error("Choisissez un PDF.");
+    if (file.size > 5 * 1024 * 1024) return toast.error("Le PDF doit faire moins de 5 Mo.");
+    setUploading(true);
+    try {
+      const uploadUrl = await generateUploadUrl({});
+      const response = await fetch(uploadUrl, { method: "POST", headers: { "Content-Type": file.type }, body: file });
+      if (!response.ok) throw new Error("Import impossible.");
+      const { storageId } = await response.json() as { storageId: Id<"_storage"> };
+      await save({ requestId, storageId, filename: file.name, sizeBytes: file.size });
+      toast.success("PDF ajouté au dossier");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Import impossible."); } finally { setUploading(false); }
+  }
+  return <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-serif text-xl font-bold">Documents</h2><p className="mt-1 text-sm text-stone-500">PDF ajoutés au dossier.</p></div><label className="cursor-pointer rounded-md border border-[#d9b8bf] px-3 py-2 text-sm font-bold text-[#8b1629]">{uploading ? "Ajout…" : "Ajouter un PDF"}<input type="file" accept="application/pdf,.pdf" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = ""; }} className="sr-only" /></label></div>{documents?.length ? <ul className="mt-4 divide-y divide-stone-100">{documents.map((document) => <li key={document._id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{document.filename}</p><p className="mt-1 text-xs text-stone-500">{new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" }).format(document.createdAt)}</p></div><div className="flex gap-3 text-sm font-bold"><a href={document.url ?? undefined} target="_blank" rel="noreferrer" className="text-[#8b1629]">Ouvrir</a><button type="button" onClick={() => { if (window.confirm(`Supprimer ${document.filename} ?`)) void remove({ documentId: document._id }); }} className="text-red-700">Supprimer</button></div></li>)}</ul> : <p className="mt-4 text-sm text-stone-500">Aucun document ajouté.</p>}</section>;
+}
+
+function suggestionLabel(field: string) {
+  return ({ guestCount: "Nombre de personnes", eventAddress: "Adresse", eventDate: "Date", eventType: "Type d’événement", eventStartTime: "Horaire", budgetCents: "Budget", budgetPerPersonCents: "Budget par personne", specialNeeds: "Besoins particuliers", contactName: "Contact", contactPhone: "Téléphone", organizationName: "Organisation" }[field] ?? field);
+}
+
+function EmailConversation({ messages, onReply }: { messages: EmailMessage[]; onReply?: () => void }) {
   return (
     <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
       <div className="flex items-baseline justify-between gap-3">
@@ -726,7 +765,7 @@ function EmailConversation({ messages }: { messages: EmailMessage[] }) {
           <p className="text-xs font-bold tracking-[.14em] text-[#7d6f67] uppercase">E-mails</p>
           <h2 className="mt-1 font-serif text-xl font-bold">Conversation avec le client</h2>
         </div>
-        <span className="text-sm text-stone-500">{messages.length} message{messages.length > 1 ? "s" : ""}</span>
+        {onReply ? <button type="button" onClick={onReply} className="rounded-md border border-[#d9b8bf] px-3 py-2 text-sm font-bold text-[#8b1629]">Répondre</button> : <span className="text-sm text-stone-500">{messages.length} message{messages.length > 1 ? "s" : ""}</span>}
       </div>
       {messages.length === 0 ? (
         <p className="mt-4 rounded-lg bg-stone-50 p-4 text-sm text-stone-500">
@@ -738,7 +777,7 @@ function EmailConversation({ messages }: { messages: EmailMessage[] }) {
             const outbound = message.direction === "outbound";
             return <li key={message._id} className={`rounded-lg p-4 ${outbound ? "ml-6 bg-[#f9ecee]" : "mr-6 bg-stone-50"}`}>
               <div className="flex flex-wrap justify-between gap-2 text-xs">
-                <p className="font-bold text-[#650d1c]">{outbound ? "Vous avez envoyé" : "Client"}</p>
+                <p className="font-bold text-[#650d1c]">{outbound ? "Sortant · vous" : `Entrant · ${message.senderEmail || "client"}`}</p>
                 <time className="text-stone-500">{timeFormat.format(message.sentAt)}</time>
               </div>
               {message.subject ? <p className="mt-2 text-sm font-semibold">{message.subject}</p> : null}
