@@ -5,15 +5,7 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router";
-import {
-  Archive,
-  Check,
-  ChevronLeft,
-  Clipboard,
-  MessageSquare,
-  MoreHorizontal,
-  Save,
-} from "lucide-react";
+import { Archive, Check, ChevronLeft, Clipboard, MessageSquare, MoreHorizontal, Save } from "lucide-react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -21,17 +13,8 @@ import { toast } from "sonner";
 import { api } from "@ERPTrisThom/backend/convex/_generated/api";
 import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
 
-import {
-  activeRequestStatuses,
-  getAllowedRequestStatuses,
-  requestStatusConfig,
-  requestStatusValues,
-  type RequestStatus,
-} from "@/domain/request-status";
-import {
-  getRequestQualification,
-  type QualificationCriterion,
-} from "@/domain/request-qualification";
+import { activeRequestStatuses, getAllowedRequestStatuses, requestStatusConfig, requestStatusValues, type RequestStatus } from "@/domain/request-status";
+import { getRequestQualification, type QualificationCriterion } from "@/domain/request-qualification";
 import { latestRequestNote, requestPrimaryAction, requestQuoteSummary, type RequestDetailTab } from "@/domain/request-detail";
 import { useConvexCrm } from "@/lib/convex-crm";
 import { legacyQuoteFromVersion, type LocalRequest, type Quote } from "@/lib/local-crm";
@@ -136,12 +119,12 @@ function RequestDetailPage() {
     completeFollowUp,
     createQuoteVersion,
   } = useConvexCrm();
-  const request = [...requests, ...archivedRequests].find(
+  const foundRequest = [...requests, ...archivedRequests].find(
     (item) => item._id === requestId,
   );
   const emailMessages = useQuery(
     api.customerEmailData.listForRequest,
-    request ? { requestId: request._id as Id<"requests"> } : "skip",
+    foundRequest ? { requestId: foundRequest._id as Id<"requests"> } : "skip",
   );
   const sendEmail = useAction(api.customerEmail.send);
   const emailTemplates = useQuery(api.emailTemplates.list);
@@ -159,24 +142,25 @@ function RequestDetailPage() {
   const [activeTab, setActiveTab] = useState<RequestDetailTab>("resume");
 
   useEffect(() => {
-    if (request) setForm(toForm(request));
-  }, [request]);
+    if (foundRequest) setForm(toForm(foundRequest));
+  }, [foundRequest]);
   const qualification = useMemo(
-    () => (request ? getRequestQualification(request) : []),
-    [request],
+    () => (foundRequest ? getRequestQualification(foundRequest) : []),
+    [foundRequest],
   );
   const missingCriteria = qualification.filter(
     (criterion) => !criterion.complete,
   );
   const draftMessage = useMemo(
     () =>
-      request
-        ? `Bonjour ${request.contactName},\n\nPour pouvoir préparer votre devis, pourriez-vous nous préciser : ${missingCriteria.map((criterion) => criterion.label).join(", ") || "les derniers éléments de votre demande"} ?\n\nMerci et à bientôt,\nBouillon Comptoir`
+      foundRequest
+        ? `Bonjour ${foundRequest.contactName},\n\nPour pouvoir préparer votre devis, pourriez-vous nous préciser : ${missingCriteria.map((criterion) => criterion.label).join(", ") || "les derniers éléments de votre demande"} ?\n\nMerci et à bientôt,\nBouillon Comptoir`
         : "",
-    [missingCriteria, request],
+    [missingCriteria, foundRequest],
   );
   if (location.pathname.endsWith("/quote")) return <Outlet />;
-  if (!request) return <EmptyRequest />;
+  if (!foundRequest) return <EmptyRequest />;
+  const request = foundRequest;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -185,21 +169,7 @@ function RequestDetailPage() {
     toast.success("Dossier enregistré localement");
   }
   async function changeStatus(status: RequestStatus) {
-    try {
-      await updateStatus({
-        requestId: request!._id,
-        status,
-        eventStartTime: request!.eventStartTime,
-        eventEndTime: request!.eventEndTime,
-      });
-      toast.success("Statut mis à jour");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Impossible de modifier le statut",
-      );
-    }
+    await updateStatus({ requestId: request!._id, status, eventStartTime: request!.eventStartTime, eventEndTime: request!.eventEndTime });
   }
   async function copyMessage() {
     await navigator.clipboard.writeText(request!.message ?? "");
@@ -245,21 +215,30 @@ function RequestDetailPage() {
     }
   }
 
-  const status = requestStatusConfig[request.status];
   const nextAction = requestPrimaryAction(request);
+  const status = requestStatusConfig[request.status];
   const quoteSummary = requestQuoteSummary(quoteRecord);
   const latestNote = latestRequestNote(request);
-  const progressIndex =
-    status.category === "lost"
-      ? -1
-      : request.status === "accepte"
-        ? activeRequestStatuses.length
-        : activeRequestStatuses.indexOf(request.status);
-  const eventCards = [
-    ["Besoins particuliers", request.specialNeeds || "Aucun besoin particulier renseigné"],
-    ["Contraintes alimentaires", request.dietaryRequirements || "Aucune contrainte renseignée"],
-    ["Personnel / matériel", request.staffingNeeds || "Aucun besoin renseigné"],
-  ];
+  const progressIndex = status.category === "lost" ? -1 : request.status === "accepte" ? activeRequestStatuses.length : activeRequestStatuses.indexOf(request.status);
+  const eventCards = [["Besoins particuliers", request.specialNeeds || "Aucun besoin particulier renseigné"], ["Contraintes alimentaires", request.dietaryRequirements || "Aucune contrainte renseignée"], ["Personnel / matériel", request.staffingNeeds || "Aucun besoin renseigné"]];
+  return (
+    <div className="space-y-6">
+      <Link to="/requests" className="inline-flex items-center gap-1 text-sm font-bold text-[#8b1629]"><ChevronLeft className="size-4" />Retour aux demandes</Link>
+      <section className="flex flex-wrap items-start justify-between gap-4">
+        <div><div className="flex flex-wrap items-center gap-2"><h1 className="font-serif text-4xl font-bold">{request.contactName}</h1><span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${status.badgeClassName}`}>{status.label}</span></div><p className="mt-2 text-sm text-stone-600">{request.eventType || "Événement à préciser"} · {request.eventDate ? dateFormat.format(request.eventDate) : "date à préciser"} · {request.guestCount ? `${request.guestCount} personnes` : "nombre de personnes à préciser"}</p><p className="mt-1 text-sm text-stone-500">{request.eventAddress || request.venue || "Adresse à préciser"}</p></div>
+        <details className="relative"><summary aria-label="Autres actions" className="list-none cursor-pointer rounded-md border border-stone-200 bg-white p-2 text-stone-700"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-2 grid min-w-48 gap-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg"><button onClick={() => setEditing(true)} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Modifier</button><button onClick={() => setActionDialog("refuse")} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Marquer comme perdu</button><button onClick={() => setActionDialog("annule")} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-stone-50">Annuler</button><button onClick={() => setDeleteDialog(true)} className="rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details>
+      </section>
+      <section className="rounded-xl bg-[#650d1c] p-5 text-white shadow-sm"><p className="text-xs font-bold tracking-[.14em] text-white/60 uppercase">Prochaine action</p><h2 className="mt-2 font-serif text-2xl font-bold">{nextAction.title}</h2>{nextAction.description ? <p className="mt-2 text-sm text-white/70">{nextAction.description}</p> : null}<button onClick={() => void runPrimaryAction()} className="mt-5 rounded-md bg-white px-4 py-2 text-sm font-bold text-[#650d1c]">{nextAction.kind === "contact" ? "Préparer le message" : nextAction.kind === "quote" || nextAction.kind === "review_quote" ? "Ouvrir le devis" : "Faire cette action"}</button></section>
+      <nav aria-label="Sections du dossier" className="flex gap-1 overflow-x-auto border-b border-stone-200">{([ ["resume", "Demande"], ["echanges", "Conversation"], ["devis", "Devis"] ] as const).map(([tab, label]) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeTab === tab ? "border-[#8b1629] text-[#8b1629]" : "border-transparent text-stone-500"}`}>{label}</button>)}</nav>
+      {activeTab === "resume" ? <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><h2 className="font-serif text-2xl font-bold">Demande</h2><button onClick={() => setEditing(true)} className="text-sm font-bold text-[#8b1629]">Modifier</button></div><dl className="mt-5 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2"><Info label="Client" value={request.organizationName || request.contactName} /><Info label="E-mail" value={request.contactEmail} /><Info label="Téléphone" value={request.contactPhone} /><Info label="Type d’événement" value={request.eventType} /><Info label="Date" value={request.eventDate ? dateFormat.format(request.eventDate) : undefined} /><Info label="Nombre de personnes" value={request.guestCount ? `${request.guestCount}` : undefined} /><Info label="Adresse" value={request.eventAddress || request.venue} /><Info label="Source" value={sourceLabels[request.source]} /></dl>{request.message ? <div className="mt-6 border-t border-stone-100 pt-5"><p className="text-xs font-bold tracking-wide text-stone-400 uppercase">Message du client</p><p className="mt-2 whitespace-pre-wrap text-sm text-stone-700">{request.message}</p></div> : null}</section> : null}
+      {activeTab === "echanges" ? <div className="space-y-5"><EmailConversation messages={emailMessages ?? []} /><Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} />{request.followUps.length > 0 ? <FollowUps request={request} onComplete={async (followUpId) => { await completeFollowUp(request._id, followUpId); toast.success("Relance marquée comme effectuée"); }} /> : null}</div> : null}
+      {activeTab === "devis" ? <QuoteSummaryCard quote={quoteRecord} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} onCreateVersion={async () => { if (!quoteRecord) { await quote(); return; } const current = quoteRecord.versions.find((item) => item.id === quoteRecord.currentVersionId); if (!current) return; await createQuoteVersion(request._id, legacyQuoteFromVersion(current, quoteRecord.versions, quoteRecord.quoteNumber)); toast.success("Nouvelle version créée"); navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } }); }} /> : null}
+      {editing ? <RequestInformation form={form} setForm={setForm} onSave={save} onCancel={() => { setForm(toForm(request)); setEditing(false); }} /> : null}
+      {messageOpen && <MessageModal initial={draftMessage} recipient={request.contactEmail} subject={emailSubject(emailMessages ?? [])} templates={[...builtInEmailTemplates, ...(emailTemplates ?? [])]} onClose={() => setMessageOpen(false)} onSaveTemplate={async (name, subject, body) => { await saveEmailTemplate({ name, subject, body }); toast.success("Modèle d’e-mail enregistré"); }} onSend={async (subject, body, attachments) => { if (!request.contactEmail) throw new Error("Ajoutez l’adresse e-mail du client avant d’envoyer."); const lastMessage = (emailMessages ?? []).at(-1); await sendEmail({ requestId: request._id as Id<"requests">, recipientEmail: request.contactEmail, subject, body, inReplyTo: lastMessage?.messageId, attachments }); toast.success("E-mail envoyé et ajouté au dossier"); setMessageOpen(false); }} />}
+      {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande marquée comme perdue" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
+      {deleteDialog ? <DeleteRequestDialog request={request} onClose={() => setDeleteDialog(false)} onConfirm={async () => { try { await deleteRequest(request._id); toast.success("Demande supprimée"); await navigate({ to: "/requests" }); } catch (error) { toast.error(error instanceof Error ? error.message : "Impossible de supprimer la demande"); } }} /> : null}
+    </div>
+  );
   return (
     <div className="space-y-5">
       <Link
@@ -335,7 +314,7 @@ function RequestDetailPage() {
           <SummaryItem label="Horaires" value={request.eventStartTime && request.eventEndTime ? `${request.eventStartTime} – ${request.eventEndTime}` : "Horaires à confirmer"} />
           <SummaryItem label="Convives" value={request.guestCount ? `${request.guestCount} personnes` : "Convives à préciser"} />
           <SummaryItem label="Lieu" value={request.eventAddress || request.venue || "Adresse à confirmer"} />
-          <SummaryItem label="Budget" value={request.budgetCents ? `${(request.budgetCents / 100).toLocaleString("fr-FR")} € TTC` : "Budget à préciser"} />
+          <SummaryItem label="Budget" value={request.budgetCents !== undefined ? `${(request.budgetCents! / 100).toLocaleString("fr-FR")} € TTC` : "Budget à préciser"} />
           <SummaryItem label="Devis" value={quoteSummary.quoteNumber ? `${quoteSummary.quoteNumber} · V${quoteSummary.versionNumber ?? "—"} · ${quoteSummary.state}` : "Aucun devis"} />
           <SummaryItem label="Prochaine action" value={nextAction.title} />
         </div>
@@ -531,11 +510,15 @@ function RequestDetailPage() {
           }}
         />
       )}
-      {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande refusée" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
+      {actionDialog && <ActionDialog kind={actionDialog!} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog!, value); toast.success(actionDialog === "refuse" ? "Demande refusée" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
       {reopenDialog ? <ReopenDialog onClose={() => setReopenDialog(false)} onSubmit={async (status) => { await reopenCancelledRequest(request._id, status); setReopenDialog(false); toast.success("Dossier réouvert"); }} /> : null}
       {deleteDialog ? <DeleteRequestDialog request={request} onClose={() => setDeleteDialog(false)} onConfirm={async () => { try { await deleteRequest(request._id); toast.success("Demande supprimée"); await navigate({ to: "/requests" }); } catch (error) { toast.error(error instanceof Error ? error.message : "Impossible de supprimer la demande"); } }} /> : null}
     </div>
   );
+}
+
+function Info({ label, value }: { label: string; value?: string }) {
+  return <div><dt className="text-stone-500">{label}</dt><dd className="mt-1 font-semibold text-stone-800">{value || "—"}</dd></div>;
 }
 
 function DeleteRequestDialog({ request, onClose, onConfirm }: { request: LocalRequest; onClose: () => void; onConfirm: () => Promise<void> }) {
