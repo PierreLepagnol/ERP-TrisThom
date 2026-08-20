@@ -2,16 +2,8 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
-import { commercialChangeSuggestions, shouldReviewIncomingEmail } from "./inboxPolicy";
-import { parseEmailRequest, triageInboxMessage } from "./requestParsing";
-
-function normalise(text: string) {
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
-
-function looksLike1001Traiteur(text: string) {
-  return normalise(text).includes("1001traiteur");
-}
+import { commercialChangeSuggestions } from "./inboxPolicy";
+import { parseEmailRequest } from "./requestParsing";
 
 function missingInformationForRequest(args: {
   contactEmail?: string;
@@ -69,7 +61,6 @@ export const recordMessage = internalMutation({
     if (existing) return { outcome: "ignored" as const, requestId: existing.requestId, reason: "already_processed" };
 
     const now = Date.now();
-    const text = [args.senderName, args.senderEmail, args.subject, args.text, args.pdfText].filter(Boolean).join("\n");
     const parsed = parseEmailRequest([args.text, args.pdfText].filter(Boolean).join("\n"), new Date(args.receivedAt ?? now));
     const threaded = args.inReplyTo
       ? await ctx.db.query("emailMessages").withIndex("by_messageId", (index) => index.eq("messageId", args.inReplyTo!)).unique()
@@ -99,30 +90,21 @@ export const recordMessage = internalMutation({
       await ctx.db.insert("emailMessages", {
         requestId: threaded.requestId, direction: "inbound", messageId: args.messageId ?? args.externalId,
         inReplyTo: args.inReplyTo, subject: args.subject, body: args.text ?? "", senderEmail: args.senderEmail,
+        attachmentNames: args.attachmentNames.slice(0, 20),
         sentAt: args.receivedAt ?? now,
       });
       return { outcome: "created" as const, requestId: threaded.requestId, reason: "thread_match" };
     }
 
-    const matchingRequests = args.senderEmail
-      ? await ctx.db.query("requests").withIndex("by_contactEmail", (index) => index.eq("contactEmail", args.senderEmail!)).take(1)
-      : [];
-    const is1001Traiteur = looksLike1001Traiteur(text);
-    const decision = shouldReviewIncomingEmail({
-      is1001Traiteur,
-      triage: triageInboxMessage(text),
-      hasMatchingContact: matchingRequests.length > 0,
-    });
-    if (decision.decision !== "create") {
+    if (!args.subject?.trim() && !args.text?.trim() && !args.pdfText?.trim() && args.attachmentNames.length === 0) {
       await ctx.db.insert("inboxMessages", {
         externalId: args.externalId, messageId: args.messageId, senderName: args.senderName, senderEmail: args.senderEmail,
         subject: args.subject, receivedAt: args.receivedAt, textPreview: args.text?.slice(0, 1_000), body: args.text?.slice(0, 20_000),
         attachmentNames: args.attachmentNames.slice(0, 20), hasPdfAttachment: args.hasPdfAttachment,
-        outcome: decision.decision === "review" ? "review" : "ignored",
-        ...(decision.decision === "review" ? { reviewStatus: "pending" as const, reviewReason: decision.reason } : {}),
+        outcome: "ignored",
         createdAt: now,
       });
-      return { outcome: decision.decision === "review" ? "review" as const : "ignored" as const, reason: decision.decision === "review" ? decision.reason : "not_a_request" };
+      return { outcome: "ignored" as const, reason: "empty_message" };
     }
 
     const requestId: Id<"requests"> = await ctx.db.insert("requests", {
@@ -140,6 +122,7 @@ export const recordMessage = internalMutation({
     await ctx.db.insert("emailMessages", {
       requestId, direction: "inbound", messageId: args.messageId ?? args.externalId, inReplyTo: args.inReplyTo,
       subject: args.subject, body: args.text ?? "", senderEmail: args.senderEmail, sentAt: args.receivedAt ?? now,
+      attachmentNames: args.attachmentNames.slice(0, 20),
     });
     await ctx.db.insert("inboxMessages", {
       externalId: args.externalId, messageId: args.messageId, senderName: args.senderName, senderEmail: args.senderEmail,

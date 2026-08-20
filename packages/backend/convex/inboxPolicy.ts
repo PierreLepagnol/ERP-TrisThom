@@ -46,23 +46,11 @@ export function inboxExternalId(messageId: string | undefined, uid: number) {
 }
 
 export function emailImportEnabled(value?: string) {
-  return value === "true";
+  return value?.trim().toLowerCase() === "true";
 }
 
 export function inboxUidsAfterCursor(uids: number[], lastSeenUid: number, limit: number) {
   return uids.filter((uid) => uid > lastSeenUid).slice(0, limit);
-}
-
-export function shouldReviewIncomingEmail({ is1001Traiteur, triage, hasMatchingContact }: {
-  is1001Traiteur: boolean;
-  triage: "request" | "review" | "ignore";
-  hasMatchingContact: boolean;
-}) {
-  if (triage === "ignore") return { decision: "ignore" as const };
-  if (is1001Traiteur) return { decision: "review" as const, reason: "1001traiteur_requires_validation" };
-  if (hasMatchingContact) return { decision: "review" as const, reason: "email_match_requires_validation" };
-  if (triage === "review") return { decision: "review" as const, reason: "message_requires_validation" };
-  return { decision: "create" as const };
 }
 
 function value(value: string | number | undefined) {

@@ -6,7 +6,7 @@ import PDFParser from "pdf2json";
 
 import { internal } from "./_generated/api";
 import { env, internalAction } from "./_generated/server";
-import { emailImportEnabled, inboxExternalId, inboxUidsAfterCursor } from "./inboxPolicy";
+import { inboxExternalId, inboxUidsAfterCursor } from "./inboxPolicy";
 import { parseEmailRequest } from "./requestParsing";
 
 const MAX_MESSAGES_PER_RUN = 20;
@@ -37,6 +37,9 @@ async function extractPdfText(content: Buffer) {
 export const pollInbox = internalAction({
   args: {},
   handler: async (ctx) => {
+    const emailImportValue = process.env.ENABLE_EMAIL_IMPORT;
+    const emailImportConfigured = emailImportValue !== undefined;
+    const emailImportEnabled = emailImportValue?.trim().toLowerCase() === "true";
     const client = new ImapFlow({
       host: env.IMAP_HOST,
       port: Number(env.IMAP_PORT),
@@ -47,13 +50,13 @@ export const pollInbox = internalAction({
     });
     try {
       await client.connect();
-      if (!emailImportEnabled(env.ENABLE_EMAIL_IMPORT)) {
-        return { scanned: 0, created: 0, ignored: 0, review: 0, disabled: true };
+      if (!emailImportEnabled) {
+        return { scanned: 0, created: 0, ignored: 0, review: 0, disabled: true, emailImportConfigured, emailImportEnabled };
       }
       const lock = await client.getMailboxLock("INBOX", { readOnly: true });
       try {
         const uids = await client.search({ all: true }, { uid: true });
-        if (!uids) return { scanned: 0, created: 0, ignored: 0, review: 0, disabled: false };
+        if (!uids) return { scanned: 0, created: 0, ignored: 0, review: 0, disabled: false, emailImportConfigured, emailImportEnabled };
         const importState: { enabledAt: number; lastSeenUid: number } = await ctx.runMutation(internal.inbox.getOrStartImport, {
           enabledAt: Date.now(),
           lastSeenUid: uids.length ? uids[uids.length - 1]! : 0,
@@ -110,7 +113,7 @@ export const pollInbox = internalAction({
         if (lastProcessedUid !== undefined) {
           await ctx.runMutation(internal.inbox.advanceImportCursor, { lastSeenUid: lastProcessedUid });
         }
-        return { scanned: pending.length, created, ignored, review, disabled: false };
+        return { scanned: pending.length, created, ignored, review, disabled: false, emailImportConfigured, emailImportEnabled };
       } finally {
         lock.release();
       }
