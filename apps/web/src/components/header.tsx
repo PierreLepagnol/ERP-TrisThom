@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, ClipboardList, LayoutDashboard, Plus, Users } from "lucide-react";
+import { CalendarDays, ClipboardList, Inbox, LayoutDashboard, Plus, Users } from "lucide-react";
 
 export default function Header() {
   const links = [
     { to: "/dashboard", label: "Accueil", icon: LayoutDashboard },
     { to: "/requests", label: "Demandes", icon: ClipboardList },
+    { to: "/inbox", label: "Entrées", icon: Inbox },
     { to: "/calendar", label: "Planning", icon: CalendarDays },
     { to: "/clients", label: "Clients", icon: Users },
   ] as const;

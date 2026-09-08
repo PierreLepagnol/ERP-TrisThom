@@ -1,28 +1,6 @@
 import { v } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
-import { commercialChangeSuggestions } from "./inboxPolicy";
-import { parseEmailRequest } from "./requestParsing";
-
-function missingInformationForRequest(args: {
-  contactEmail?: string;
-  eventAddress?: string;
-  eventDate?: number;
-  eventType?: string;
-  guestCount?: number;
-  specialNeeds?: string;
-}) {
-  const missing: string[] = [];
-  if (!args.eventDate) missing.push("Date de l'événement");
-  if (!args.eventAddress) missing.push("Lieu ou adresse");
-  if (!args.guestCount) missing.push("Nombre de personnes");
-  if (!args.eventType) missing.push("Type de prestation");
-  missing.push("Budget", "Horaires");
-  if (!args.specialNeeds) missing.push("Besoins particuliers");
-  if (!args.contactEmail) missing.push("Coordonnées du client");
-  return missing;
-}
 
 export const getOrStartImport = internalMutation({
   args: { enabledAt: v.number(), lastSeenUid: v.number() },
@@ -61,7 +39,6 @@ export const recordMessage = internalMutation({
     if (existing) return { outcome: "ignored" as const, requestId: existing.requestId, reason: "already_processed" };
 
     const now = Date.now();
-    const parsed = parseEmailRequest([args.text, args.pdfText].filter(Boolean).join("\n"), new Date(args.receivedAt ?? now));
     const threaded = args.inReplyTo
       ? await ctx.db.query("emailMessages").withIndex("by_messageId", (index) => index.eq("messageId", args.inReplyTo!)).unique()
       : null;
@@ -73,20 +50,7 @@ export const recordMessage = internalMutation({
         attachmentNames: args.attachmentNames.slice(0, 20), hasPdfAttachment: args.hasPdfAttachment,
         outcome: "created", reviewStatus: "attached", requestId: threaded.requestId, createdAt: now,
       });
-      const request = await ctx.db.get(threaded.requestId);
-      const suggestions = request ? commercialChangeSuggestions(request, parsed) : [];
-      for (const suggestion of suggestions) {
-        await ctx.db.insert("requestChangeSuggestions", {
-          requestId: threaded.requestId, inboxMessageId, ...suggestion, status: "pending", createdAt: now,
-        });
-      }
-      if (request) {
-        await ctx.db.insert("requestHistory", {
-          requestId: request._id,
-          label: suggestions.length ? "E-mail reçu : modifications à valider" : "E-mail reçu dans la conversation",
-          createdAt: now,
-        });
-      }
+      await ctx.db.insert("requestHistory", { requestId: threaded.requestId, label: "Nouvelle réponse reçue par e-mail", createdAt: now });
       await ctx.db.insert("emailMessages", {
         requestId: threaded.requestId, direction: "inbound", messageId: args.messageId ?? args.externalId,
         inReplyTo: args.inReplyTo, subject: args.subject, body: args.text ?? "", senderEmail: args.senderEmail,
@@ -107,29 +71,12 @@ export const recordMessage = internalMutation({
       return { outcome: "ignored" as const, reason: "empty_message" };
     }
 
-    const requestId: Id<"requests"> = await ctx.db.insert("requests", {
-      source: "email", externalSourceId: args.externalId, status: "nouveau",
-      contactName: args.senderName?.trim() || args.senderEmail || "Contact à identifier",
-      contactEmail: parsed.contactEmail || args.senderEmail, contactPhone: parsed.contactPhone,
-      organizationName: parsed.organizationName, eventDate: parsed.eventDate, eventAddress: parsed.eventAddress,
-      eventType: parsed.eventType, guestCount: parsed.guestCount, specialNeeds: parsed.specialNeeds,
-      message: [args.subject ? `Objet : ${args.subject}` : undefined, args.text, args.pdfText ? `Informations lues dans le PDF :\n${args.pdfText}` : undefined]
-        .filter(Boolean).join("\n\n").slice(0, 20_000),
-      missingInformation: missingInformationForRequest({ contactEmail: parsed.contactEmail || args.senderEmail, ...parsed }),
-      createdAt: now, updatedAt: now,
-    });
-    await ctx.db.insert("requestHistory", { requestId, label: "Demande reçue par e-mail", createdAt: now });
-    await ctx.db.insert("emailMessages", {
-      requestId, direction: "inbound", messageId: args.messageId ?? args.externalId, inReplyTo: args.inReplyTo,
-      subject: args.subject, body: args.text ?? "", senderEmail: args.senderEmail, sentAt: args.receivedAt ?? now,
-      attachmentNames: args.attachmentNames.slice(0, 20),
-    });
     await ctx.db.insert("inboxMessages", {
       externalId: args.externalId, messageId: args.messageId, senderName: args.senderName, senderEmail: args.senderEmail,
       subject: args.subject, receivedAt: args.receivedAt, textPreview: args.text?.slice(0, 1_000), body: args.text?.slice(0, 20_000),
       attachmentNames: args.attachmentNames.slice(0, 20), hasPdfAttachment: args.hasPdfAttachment,
-      outcome: "created", reviewStatus: "created", requestId, createdAt: now,
+      outcome: "review", reviewStatus: "pending", createdAt: now,
     });
-    return { outcome: "created" as const, requestId, reason: "new_request" };
+    return { outcome: "review" as const, reason: "pending_human_review" };
   },
 });

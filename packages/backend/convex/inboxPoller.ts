@@ -7,7 +7,6 @@ import PDFParser from "pdf2json";
 import { internal } from "./_generated/api";
 import { env, internalAction } from "./_generated/server";
 import { inboxExternalId, inboxUidsAfterCursor } from "./inboxPolicy";
-import { parseEmailRequest } from "./requestParsing";
 
 const MAX_MESSAGES_PER_RUN = 20;
 const MAX_MESSAGE_BYTES = 10 * 1024 * 1024;
@@ -74,7 +73,6 @@ export const pollInbox = internalAction({
             continue;
           }
           const sender = message.from?.value[0];
-          const extracted = parseEmailRequest(message.text ?? "", message.date ?? new Date());
           const attachmentNames = message.attachments
             .filter((attachment) => attachment.filename)
             .map((attachment) => attachment.filename!)
@@ -96,8 +94,8 @@ export const pollInbox = internalAction({
             externalId: inboxExternalId(message.messageId, uid),
             messageId: message.messageId,
             inReplyTo: message.inReplyTo,
-            senderName: extracted.contactName || sender?.name || undefined,
-            senderEmail: extracted.contactEmail || sender?.address || undefined,
+            senderName: sender?.name || undefined,
+            senderEmail: sender?.address || undefined,
             subject: message.subject?.slice(0, 500),
             receivedAt,
             text: message.text?.slice(0, 20_000),
