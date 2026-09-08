@@ -31,6 +31,7 @@ import type * as pdfImport from "../pdfImport.js";
 import type * as privateData from "../privateData.js";
 import type * as requestDeletion from "../requestDeletion.js";
 import type * as requestDocuments from "../requestDocuments.js";
+import type * as requestOffers from "../requestOffers.js";
 import type * as requestParsing from "../requestParsing.js";
 import type * as requestReview from "../requestReview.js";
 
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   privateData: typeof privateData;
   requestDeletion: typeof requestDeletion;
   requestDocuments: typeof requestDocuments;
+  requestOffers: typeof requestOffers;
   requestParsing: typeof requestParsing;
   requestReview: typeof requestReview;
 }>;

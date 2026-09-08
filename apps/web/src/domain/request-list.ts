@@ -1,5 +1,6 @@
 import type { LocalRequest, Quote } from "@/lib/local-crm";
 import { normalizeRequestStatus } from "@/domain/request-status";
+import type { CommercialStatus } from "@/domain/request-status";
 
 export type RequestListView = "active" | "week" | "without_date" | "history";
 export function matchesRequestView(request: LocalRequest, view: RequestListView, now = Date.now()) {
@@ -17,6 +18,9 @@ export function matchesRequestSearch(request: LocalRequest, query: string, quote
   const needle = normalizeRequestSearch(query);
   if (!needle) return true;
   return [request.contactName, request.organizationName, request.contactEmail, request.contactPhone, request.eventType, request.eventAddress, request.venue, quote?.quoteNumber].some((value) => normalizeRequestSearch(value ?? "").includes(needle));
+}
+export function matchesRequestFilters(request: LocalRequest, statuses: ReadonlySet<CommercialStatus>, sources: ReadonlySet<LocalRequest["source"]>) {
+  return (!statuses.size || statuses.has(normalizeRequestStatus(request.status))) && (!sources.size || sources.has(request.source));
 }
 export function needsActionToday(request: LocalRequest, now = Date.now()) {
   const start = new Date(now); start.setHours(0, 0, 0, 0);

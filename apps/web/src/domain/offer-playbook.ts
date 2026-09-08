@@ -1,0 +1,6 @@
+export const offerFormats = ["aperitif", "cocktail", "buffet_dinatoire", "buffet_froid", "repas_chaud", "brunch", "plateau_repas", "reception_complete"] as const;
+export const offerLevels = ["comptoir", "brasserie", "grande_table"] as const;
+export type OfferFormat = typeof offerFormats[number]; export type OfferLevel = typeof offerLevels[number];
+export const formatLabels: Record<OfferFormat, string> = { aperitif: "Apéritif", cocktail: "Cocktail", buffet_dinatoire: "Buffet dînatoire", buffet_froid: "Buffet froid", repas_chaud: "Repas chaud", brunch: "Brunch", plateau_repas: "Plateau-repas", reception_complete: "Réception complète" };
+export const levelLabels: Record<OfferLevel, string> = { comptoir: "Comptoir", brasserie: "Brasserie", grande_table: "Grande Table" };
+export function suggestedModules(format: OfferFormat, level: OfferLevel) { if (format === "aperitif") return ["aperitif"]; if (format === "cocktail") return ["aperitif", "desserts"]; if (format === "buffet_dinatoire") return level === "comptoir" ? ["aperitif","partage","buffet_froid","plat","desserts"] : level === "brasserie" ? ["aperitif","partage","buffet_froid","plat","desserts"] : ["aperitif","partage","plat","desserts"]; if (format === "brunch") return ["brunch_sale","brunch_sucre","boissons"]; return ["entree","plat","garniture","desserts"]; }

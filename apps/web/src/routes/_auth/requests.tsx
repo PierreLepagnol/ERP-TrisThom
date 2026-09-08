@@ -8,10 +8,10 @@ import { z } from "zod";
 import { api } from "@ERPTrisThom/backend/convex/_generated/api";
 import { TimeSelect } from "@/components/time-select";
 import { RequestSourceBadge } from "@/components/crm/request-source-badge";
-import { RequestStatusBadge } from "@/components/crm/request-status-badge";
+import { RequestStatusSelect } from "@/components/crm/request-status-select";
 
 import { commercialStatusValues, normalizeRequestStatus, requestStatusConfig, type CommercialStatus } from "@/domain/request-status";
-import { matchesRequestSearch, matchesRequestView, sortRequests, type RequestListView } from "@/domain/request-list";
+import { matchesRequestFilters, matchesRequestSearch, matchesRequestView, sortRequests, type RequestListView } from "@/domain/request-list";
 import { useConvexCrm } from "@/lib/convex-crm";
 import type { LocalRequest } from "@/lib/local-crm";
 
@@ -47,8 +47,8 @@ function RequestsPage() {
   const [pdfAnalysis, setPdfAnalysis] = useState<PdfAnalysis | null>(null);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<RequestListView>("active");
-  const [statusFilter, setStatusFilter] = useState<"all" | CommercialStatus>("all");
-  const [sourceFilter, setSourceFilter] = useState<"all" | LocalRequest["source"]>("all");
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<CommercialStatus>>(new Set());
+  const [selectedSources, setSelectedSources] = useState<Set<LocalRequest["source"]>>(new Set());
   const [requestToDelete, setRequestToDelete] = useState<LocalRequest | null>(null);
   const [sort, setSort] = useState<"eventDate" | "eventDateDesc" | "receivedAt" | "receivedAtAsc">("eventDate");
   const location = useLocation();
@@ -149,7 +149,10 @@ function RequestsPage() {
 
   const allRequests = useMemo(() => [...(requests ?? []), ...(archivedRequests ?? [])], [archivedRequests, requests]);
   const displayedRequests = view === "history" ? allRequests : requests;
-  const filteredRequests = useMemo(() => (displayedRequests ?? []).filter((request) => matchesRequestView(request, view) && (statusFilter === "all" || normalizeRequestStatus(request.status) === statusFilter) && (sourceFilter === "all" || request.source === sourceFilter) && matchesRequestSearch(request, search, quotes.find((quote) => quote.requestId === request._id))), [displayedRequests, quotes, search, sourceFilter, statusFilter, view]);
+  const filteredRequests = useMemo(() => (displayedRequests ?? []).filter((request) => matchesRequestView(request, view) && matchesRequestFilters(request, selectedStatuses, selectedSources) && matchesRequestSearch(request, search, quotes.find((quote) => quote.requestId === request._id))), [displayedRequests, quotes, search, selectedSources, selectedStatuses, view]);
+  const visibleStatuses = view === "history" ? commercialStatusValues.filter((status) => ["termine", "refuse", "annule"].includes(status)) : commercialStatusValues.filter((status) => !["termine", "refuse", "annule"].includes(status));
+  const toggleStatus = (status: CommercialStatus) => setSelectedStatuses((current) => { const next = new Set(current); next.has(status) ? next.delete(status) : next.add(status); return next; });
+  const toggleSource = (source: LocalRequest["source"]) => setSelectedSources((current) => { const next = new Set(current); next.has(source) ? next.delete(source) : next.add(source); return next; });
   const sortedRequests = useMemo(() => sortRequests(filteredRequests, sort), [filteredRequests, sort]);
 
   return (
@@ -175,13 +178,7 @@ function RequestsPage() {
 
       <section className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
         <div className="border-b border-stone-100 px-5 py-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <input aria-label="Rechercher une demande" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher une demande" className="input w-full sm:w-64" />
-            <select aria-label="Vue" value={view} onChange={(event) => setView(event.target.value as RequestListView)} className="input"><option value="active">Tous les actifs ({requests.length})</option><option value="week">Cette semaine</option><option value="without_date">Sans date</option><option value="history">Historique</option></select>
-            <select aria-label="Statut" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | CommercialStatus)} className="input"><option value="all">Tous les statuts</option>{commercialStatusValues.map((status) => <option key={status} value={status}>{requestStatusConfig[status].label}</option>)}</select>
-            <select aria-label="Source" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | LocalRequest["source"])} className="input"><option value="all">Toutes les sources</option>{Object.entries(sourceLabels).map(([source, label]) => <option key={source} value={source}>{label}</option>)}</select>
-            <select aria-label="Trier" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="input"><option value="eventDate">Date événement ↑</option><option value="eventDateDesc">Date événement ↓</option><option value="receivedAt">Plus récentes</option><option value="receivedAtAsc">Plus anciennes</option></select>
-          </div>
+          <div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><input aria-label="Rechercher une demande" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un client, un événement…" className="input min-w-0 flex-1 sm:min-w-72" /><details className="relative"><summary className="cursor-pointer list-none rounded-md border border-stone-200 px-3 py-2 text-sm font-bold">Sources{selectedSources.size ? ` · ${selectedSources.size}` : ""} ▾</summary><div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">{Object.entries(sourceLabels).map(([source, label]) => <label key={source} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-stone-50"><input type="checkbox" checked={selectedSources.has(source as LocalRequest["source"])} onChange={() => toggleSource(source as LocalRequest["source"])} />{label}</label>)}</div></details><select aria-label="Trier" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="input w-auto"><option value="eventDate">Date événement ↑</option><option value="eventDateDesc">Date événement ↓</option><option value="receivedAt">Plus récentes</option><option value="receivedAtAsc">Plus anciennes</option></select></div><div className="flex gap-2 overflow-x-auto pb-1">{(["active", "week", "without_date", "history"] as RequestListView[]).map((value) => <button key={value} type="button" onClick={() => setView(value)} className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-bold ${view === value ? "bg-[#650d1c] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{({ active: "Tous les actifs", week: "Cette semaine", without_date: "Sans date", history: "Historique" })[value]}</button>)}</div><div className="flex flex-wrap items-center gap-2">{visibleStatuses.map((status) => <button key={status} type="button" onClick={() => toggleStatus(status)} className={`rounded-full px-3 py-1.5 text-xs font-bold ring-1 ${requestStatusConfig[status].badgeClassName} ${selectedStatuses.has(status) ? "ring-2 ring-[#650d1c]" : "opacity-75"}`}>{requestStatusConfig[status].label} {(displayedRequests ?? []).filter((request) => matchesRequestView(request, view) && normalizeRequestStatus(request.status) === status).length}</button>)}{selectedStatuses.size ? <button type="button" onClick={() => setSelectedStatuses(new Set())} className="px-2 text-xs font-bold text-[#8b1629]">Effacer</button> : null}</div></div>
         </div>
         {!displayedRequests ? (
           <p className="px-6 py-10 text-sm text-stone-500">Chargement des demandes…</p>
@@ -201,8 +198,7 @@ function RequestsPage() {
 }
 
 function RequestRow({ request, onOpen, onDelete, onStatusChange }: { request: LocalRequest; onOpen: () => void; onDelete: () => void; onStatusChange: (status: CommercialStatus) => void }) {
-  const status = normalizeRequestStatus(request.status);
-  return <article onClick={onOpen} className="grid cursor-pointer gap-3 px-5 py-3.5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><h3 className="truncate font-semibold">{request.contactName}</h3><p className="mt-1 truncate text-sm text-stone-600">{request.eventType || "Événement à préciser"} · <strong className="text-stone-800">{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</strong>{request.guestCount ? ` · ${request.guestCount} pers.` : ""}</p><div className="mt-2"><RequestSourceBadge source={request.source} /></div></div><div className="flex items-center justify-end gap-2"><div className="hidden sm:block"><RequestStatusBadge status={request.status} /></div><select aria-label={`Statut de ${request.contactName}`} value={status} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); onStatusChange(event.target.value as CommercialStatus); }} className="input max-w-40 text-sm font-bold">{commercialStatusValues.map((value) => <option key={value} value={value}>{requestStatusConfig[value].label}</option>)}</select><details onClick={(event) => event.stopPropagation()} className="relative"><summary aria-label={`Actions pour ${request.contactName}`} className="list-none rounded-md p-2 text-stone-500 hover:bg-stone-100"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-stone-200 bg-white p-1 shadow-lg"><button type="button" onClick={onDelete} className="w-full rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details><ChevronRight className="size-5 text-stone-300" /></div></article>;
+  return <article onClick={onOpen} className="grid cursor-pointer gap-3 px-5 py-3.5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><h3 className="truncate font-semibold">{request.contactName}</h3><p className="mt-1 truncate text-sm text-stone-600">{request.eventType || "Événement à préciser"}</p><div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-stone-500"><strong className="text-stone-800">{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</strong>{request.guestCount ? <span>· {request.guestCount} pers.</span> : null}<RequestSourceBadge source={request.source} /></div></div><div className="flex items-center justify-end gap-2"><RequestStatusSelect status={request.status} label={`Statut de ${request.contactName}`} onChange={onStatusChange} /><details onClick={(event) => event.stopPropagation()} className="relative"><summary aria-label={`Actions pour ${request.contactName}`} className="list-none rounded-md p-2 text-stone-500 hover:bg-stone-100"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-stone-200 bg-white p-1 shadow-lg"><button type="button" onClick={onDelete} className="w-full rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details><ChevronRight className="size-5 text-stone-300" /></div></article>;
 }
 
 function DeleteRequestDialog({ request, onClose, onConfirm }: { request: LocalRequest; onClose: () => void; onConfirm: () => Promise<void> }) {

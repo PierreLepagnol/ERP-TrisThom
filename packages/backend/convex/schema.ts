@@ -147,6 +147,13 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_requestId_and_createdAt", ["requestId", "createdAt"]),
 
+  requestOffers: defineTable({
+    requestId: v.id("requests"), format: v.string(), level: v.string(), variant: v.optional(v.string()),
+    selectedModules: v.array(v.string()),
+    moduleSelections: v.array(v.object({ moduleId: v.string(), catalogItemIds: v.array(v.string()), customItems: v.array(v.string()), note: v.optional(v.string()) })),
+    createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_requestId", ["requestId"]),
+
   inboxImportState: defineTable({
     key: v.literal("email_import"),
     enabledAt: v.number(),
