@@ -1,7 +1,10 @@
 import { Link } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { api } from "@ERPTrisThom/backend/convex/_generated/api";
 import { CalendarDays, ClipboardList, Inbox, LayoutDashboard, Plus, Users } from "lucide-react";
 
 export default function Header() {
+  const pendingEntries = useQuery(api.inboxEntries.pendingCount);
   const links = [
     { to: "/dashboard", label: "Accueil", icon: LayoutDashboard },
     { to: "/requests", label: "Demandes", icon: ClipboardList },
@@ -29,7 +32,7 @@ export default function Header() {
                 className="flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-white/80 transition hover:bg-white/10 hover:text-white"
               >
                 <Icon className="size-4" />
-                {label}
+                {label}{label === "Entrées" && pendingEntries ? <span className="rounded-full bg-[#f6e7be] px-1.5 text-xs text-[#650d1c]">{pendingEntries}</span> : null}
               </Link>
             );
           })}
