@@ -1,0 +1,4 @@
+// @ts-expect-error Bun supplies this module when running `bun test`.
+import { expect, test } from "bun:test"; import { cleanInboxBody, parse1001Request } from "./inbox-display";
+test("cleans technical email display",()=>expect(cleanInboxBody("@import url(x);\nBonjour\nhttps://track.test/x\nSe désinscrire")).toBe("Bonjour"));
+test("parses a strict 1001 request",()=>expect(parse1001Request("service.client@1001traiteurs.com","1001 Traiteurs nouvelle demande","Prénom : Lucille\nNom : Henriot\nAdresse email : lucille@test.fr\nType d'événement : Anniversaire\nDate : 19/09/2026\nVille : Nanterre (92000)\nNombre d'invités : 12\nNous disposons d'un budget de 17€ par personne\nMode de restauration : Buffet\nOption(s) de service : Dessert personnalisé - Menu sur mesure")?.name).toBe("Lucille Henriot"));
