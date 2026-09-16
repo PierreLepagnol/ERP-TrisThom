@@ -35,6 +35,8 @@ type Env = {
   readonly IMAP_HOST: string;
   readonly IMAP_PORT: string;
   readonly IMAP_SECURE: string;
+  readonly OPENAI_API_KEY: string | undefined;
+  readonly OPENAI_MODEL: string | undefined;
   readonly SITE_URL: string;
   readonly SMTP_FROM: string;
   readonly SMTP_HOST: string;

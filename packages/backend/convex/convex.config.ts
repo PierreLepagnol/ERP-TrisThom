@@ -21,6 +21,8 @@ const app = defineApp({
     CRM_IMPORT_SECRET: v.optional(v.string()),
     ALLOW_DESTRUCTIVE_CRM_RESET: v.optional(v.string()),
     ENABLE_EMAIL_IMPORT: v.optional(v.string()),
+    OPENAI_API_KEY: v.optional(v.string()),
+    OPENAI_MODEL: v.optional(v.string()),
   },
 });
 app.use(betterAuth);

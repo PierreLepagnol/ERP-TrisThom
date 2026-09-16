@@ -24,6 +24,8 @@ import type * as emailTemplates from "../emailTemplates.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
+import type * as inboxAgent from "../inboxAgent.js";
+import type * as inboxAgentData from "../inboxAgentData.js";
 import type * as inboxEntries from "../inboxEntries.js";
 import type * as inboxPolicy from "../inboxPolicy.js";
 import type * as inboxPoller from "../inboxPoller.js";
@@ -59,6 +61,8 @@ declare const fullApi: ApiFromModules<{
   healthCheck: typeof healthCheck;
   http: typeof http;
   inbox: typeof inbox;
+  inboxAgent: typeof inboxAgent;
+  inboxAgentData: typeof inboxAgentData;
   inboxEntries: typeof inboxEntries;
   inboxPolicy: typeof inboxPolicy;
   inboxPoller: typeof inboxPoller;

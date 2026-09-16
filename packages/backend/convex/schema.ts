@@ -127,6 +127,14 @@ export default defineSchema({
     .index("by_externalId", ["externalId"])
     .index("by_requestId", ["requestId"]),
 
+  requestEvents: defineTable({
+    requestId: v.id("requests"), label: v.string(), date: v.optional(v.number()), startTime: v.optional(v.string()), endTime: v.optional(v.string()), address: v.optional(v.string()), guestCount: v.optional(v.number()), serviceType: v.optional(v.string()), format: v.optional(v.string()), notes: v.optional(v.string()), status: v.union(v.literal("demandee"), v.literal("potentielle"), v.literal("confirmee"), v.literal("annulee")), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_requestId_and_date", ["requestId", "date"]),
+
+  inboxAnalyses: defineTable({
+    inboxMessageId: v.id("inboxMessages"), status: v.union(v.literal("pending_analysis"), v.literal("analyzed"), v.literal("analysis_failed"), v.literal("applied")), summary: v.optional(v.string()), messageType: v.optional(v.string()), plan: v.optional(v.string()), acceptedPlan: v.optional(v.string()), model: v.optional(v.string()), error: v.optional(v.string()), analyzedAt: v.optional(v.number()), appliedAt: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_inboxMessageId", ["inboxMessageId"]),
+
   requestChangeSuggestions: defineTable({
     requestId: v.id("requests"),
     inboxMessageId: v.id("inboxMessages"),
