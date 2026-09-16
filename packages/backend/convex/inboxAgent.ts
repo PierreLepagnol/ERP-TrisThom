@@ -23,15 +23,19 @@ export const analyze = action({
     const loaded = await ctx.runQuery(internal.inboxAgentData.load, { inboxMessageId: args.inboxMessageId });
     if (!loaded) throw new Error("Entrée introuvable.");
     if (loaded.analysis?.status === "analyzed" && !args.force) return { status: "cached" as const };
-    if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY est manquante.");
+    // Convex's typed env can lag behind a newly deployed app config. Node actions
+    // also receive deployment variables through process.env, so keep this fallback.
+    const openAiKey = env.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY;
+    const openAiModel = env.OPENAI_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-5-mini";
+    if (!openAiKey) throw new Error("OPENAI_API_KEY est manquante.");
     await ctx.runMutation(internal.inboxAgentData.save, { inboxMessageId: args.inboxMessageId, status: "pending_analysis" });
     const payload = { mail: loaded.entry, crm: loaded.context.map(item => ({ request: item.request, events: item.events, quotes: item.quotes, recentMessages: item.messages })) };
     try {
-      const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: env.OPENAI_MODEL || "gpt-5-mini", input: [{ role: "system", content: [{ type: "input_text", text: "Tu es un assistant CRM. Tu ne modifies rien. Propose uniquement un plan prudent, fondé exclusivement sur le mail et le contexte ciblé. Ne choisis jamais un dossier ambigu; utilise une confiance faible. Les actions doivent être exploitables par un humain." }] }, { role: "user", content: [{ type: "input_text", text: JSON.stringify(payload) }] }], text: { format: { type: "json_schema", name: "inbox_action_plan", strict: true, schema } } }) });
+      const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: openAiModel, input: [{ role: "system", content: [{ type: "input_text", text: "Tu es un assistant CRM. Tu ne modifies rien. Propose uniquement un plan prudent, fondé exclusivement sur le mail et le contexte ciblé. Ne choisis jamais un dossier ambigu; utilise une confiance faible. Les actions doivent être exploitables par un humain." }] }, { role: "user", content: [{ type: "input_text", text: JSON.stringify(payload) }] }], text: { format: { type: "json_schema", name: "inbox_action_plan", strict: true, schema } } }) });
       if (!response.ok) throw new Error(`OpenAI ${response.status}`);
       const raw = await response.json() as { output_text?: string };
       const result = JSON.parse(raw.output_text || "{}") as { summary: string; messageType: string };
-      await ctx.runMutation(internal.inboxAgentData.save, { inboxMessageId: args.inboxMessageId, status: "analyzed", summary: result.summary, messageType: result.messageType, plan: JSON.stringify(result), model: env.OPENAI_MODEL || "gpt-5-mini" });
+      await ctx.runMutation(internal.inboxAgentData.save, { inboxMessageId: args.inboxMessageId, status: "analyzed", summary: result.summary, messageType: result.messageType, plan: JSON.stringify(result), model: openAiModel });
       return { status: "analyzed" as const };
     } catch (error) {
       await ctx.runMutation(internal.inboxAgentData.save, { inboxMessageId: args.inboxMessageId, status: "analysis_failed", error: error instanceof Error ? error.message : "Analyse impossible" });
