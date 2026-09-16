@@ -44,7 +44,7 @@ export const recordMessage = internalMutation({
       : null;
 
     if (threaded) {
-      const inboxMessageId = await ctx.db.insert("inboxMessages", {
+      await ctx.db.insert("inboxMessages", {
         externalId: args.externalId, messageId: args.messageId, senderName: args.senderName, senderEmail: args.senderEmail,
         subject: args.subject, receivedAt: args.receivedAt, textPreview: args.text?.slice(0, 1_000), body: args.text?.slice(0, 20_000),
         attachmentNames: args.attachmentNames.slice(0, 20), hasPdfAttachment: args.hasPdfAttachment,
