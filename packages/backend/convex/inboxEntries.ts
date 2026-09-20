@@ -1,3 +1,5 @@
+import { paginationOptsValidator } from "convex/server";
+import { matchesInboxCandidate } from "./inboxCandidatePolicy";
 import { v } from "convex/values";
 import { authComponent } from "./auth";
 import { mutation, query } from "./_generated/server";
@@ -13,7 +15,26 @@ async function attachEntry(ctx: any, entry: any, requestId: Id<"requests">, labe
 }
 
 export const list = query({ args: { processed: v.boolean() }, handler: async (ctx, args) => { await requireUser(ctx); const rows = (await ctx.db.query("inboxMessages").take(500)).filter(row => args.processed ? row.reviewStatus !== "pending" : row.reviewStatus === "pending").sort((a, b) => (b.receivedAt ?? b.createdAt) - (a.receivedAt ?? a.createdAt)); return await Promise.all(rows.map(async entry => ({ ...entry, analysis: await ctx.db.query("inboxAnalyses").withIndex("by_inboxMessageId", q => q.eq("inboxMessageId", entry._id)).unique() }))); } });
-export const candidates = query({ args: {}, handler: async ctx => { await requireUser(ctx); return (await ctx.db.query("requests").take(300)).filter(request => !request.deletedAt).map(request => ({ _id: request._id, label: [request.organizationName, request.contactName, request.eventType].filter(Boolean).join(" — ") || request.contactName, eventDate: request.eventDate })); } });
+export const candidates = query({
+  args: { search: v.string(), history: v.boolean(), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    await requireUser(ctx);
+    // Scan bounded pages: no search index exists, and older matches must remain reachable.
+    const result = await ctx.db.query("requests").order("desc").paginate(args.paginationOpts);
+    return {
+      ...result,
+      page: result.page.filter(request => matchesInboxCandidate(request, args.search, args.history)).map(request => ({
+        _id: request._id, contactName: request.contactName, contactEmail: request.contactEmail,
+        contactPhone: request.contactPhone, organizationName: request.organizationName,
+        eventType: request.eventType, eventDate: request.eventDate,
+        eventStartTime: request.eventStartTime, eventEndTime: request.eventEndTime,
+        eventAddress: request.eventAddress, guestCount: request.guestCount,
+        budgetCents: request.budgetCents, budgetPerPersonCents: request.budgetPerPersonCents,
+        specialNeeds: request.specialNeeds, status: request.status, archivedAt: request.archivedAt,
+      })),
+    };
+  },
+});
 export const pendingCount = query({ args: {}, handler: async ctx => { await requireUser(ctx); return (await ctx.db.query("inboxMessages").take(10_000)).filter(row => row.reviewStatus === "pending").length; } });
 export const ignore = mutation({ args: { inboxMessageId: v.id("inboxMessages") }, handler: async (ctx, { inboxMessageId }) => { await requireUser(ctx); const entry = await ctx.db.get(inboxMessageId); if (!entry || entry.reviewStatus !== "pending") throw new Error("Entrée déjà traitée ou introuvable."); await ctx.db.patch(entry._id, { outcome: "ignored", reviewStatus: "ignored" }); return null; } });
 export const attach = mutation({ args: { inboxMessageId: v.id("inboxMessages"), requestId: v.id("requests") }, handler: async (ctx, args) => { await requireUser(ctx); const entry = await ctx.db.get(args.inboxMessageId); const request = await ctx.db.get(args.requestId); if (!entry || entry.reviewStatus !== "pending" || !request || request.deletedAt) throw new Error("Entrée ou dossier introuvable."); await attachEntry(ctx, entry, args.requestId, "E-mail rattaché manuellement"); await ctx.db.patch(entry._id, { outcome: "created", reviewStatus: "attached", requestId: args.requestId }); return null; } });

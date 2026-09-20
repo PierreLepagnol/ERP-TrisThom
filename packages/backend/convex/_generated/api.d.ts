@@ -26,6 +26,7 @@ import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
 import type * as inboxAgent from "../inboxAgent.js";
 import type * as inboxAgentData from "../inboxAgentData.js";
+import type * as inboxCandidatePolicy from "../inboxCandidatePolicy.js";
 import type * as inboxEntries from "../inboxEntries.js";
 import type * as inboxPolicy from "../inboxPolicy.js";
 import type * as inboxPoller from "../inboxPoller.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   inbox: typeof inbox;
   inboxAgent: typeof inboxAgent;
   inboxAgentData: typeof inboxAgentData;
+  inboxCandidatePolicy: typeof inboxCandidatePolicy;
   inboxEntries: typeof inboxEntries;
   inboxPolicy: typeof inboxPolicy;
   inboxPoller: typeof inboxPoller;
