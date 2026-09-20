@@ -37,6 +37,7 @@ import type * as requestDocuments from "../requestDocuments.js";
 import type * as requestOffers from "../requestOffers.js";
 import type * as requestParsing from "../requestParsing.js";
 import type * as requestReview from "../requestReview.js";
+import type * as siteTools from "../siteTools.js";
 
 import type {
   ApiFromModules,
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   requestOffers: typeof requestOffers;
   requestParsing: typeof requestParsing;
   requestReview: typeof requestReview;
+  siteTools: typeof siteTools;
 }>;
 
 /**
