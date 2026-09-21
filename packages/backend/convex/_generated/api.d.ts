@@ -35,8 +35,11 @@ import type * as pdfImport from "../pdfImport.js";
 import type * as privateData from "../privateData.js";
 import type * as requestDeletion from "../requestDeletion.js";
 import type * as requestDocuments from "../requestDocuments.js";
+import type * as requestEventModel from "../requestEventModel.js";
+import type * as requestEvents from "../requestEvents.js";
 import type * as requestOffers from "../requestOffers.js";
 import type * as requestParsing from "../requestParsing.js";
+import type * as requestQualification from "../requestQualification.js";
 import type * as requestReview from "../requestReview.js";
 import type * as siteTools from "../siteTools.js";
 
@@ -74,8 +77,11 @@ declare const fullApi: ApiFromModules<{
   privateData: typeof privateData;
   requestDeletion: typeof requestDeletion;
   requestDocuments: typeof requestDocuments;
+  requestEventModel: typeof requestEventModel;
+  requestEvents: typeof requestEvents;
   requestOffers: typeof requestOffers;
   requestParsing: typeof requestParsing;
+  requestQualification: typeof requestQualification;
   requestReview: typeof requestReview;
   siteTools: typeof siteTools;
 }>;
