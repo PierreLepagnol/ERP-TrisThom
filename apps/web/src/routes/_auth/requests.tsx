@@ -1,3 +1,4 @@
+import { getRequestEvents, requestDateSummary } from "@/domain/effective-services";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useAction, useMutation } from "convex/react";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
@@ -26,7 +27,6 @@ const sourceLabels: Record<string, string> = {
   email: "E-mail",
 };
 
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
 
 export const Route = createFileRoute("/_auth/requests")({
   validateSearch: z.object({
@@ -198,12 +198,15 @@ function RequestsPage() {
 }
 
 function RequestRow({ request, onOpen, onDelete, onStatusChange }: { request: LocalRequest; onOpen: () => void; onDelete: () => void; onStatusChange: (status: CommercialStatus) => void }) {
-  return <article onClick={onOpen} className="grid cursor-pointer gap-3 px-5 py-3.5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><h3 className="truncate font-semibold">{request.contactName}</h3><p className="mt-1 truncate text-sm text-stone-600">{request.eventType || "Événement à préciser"}</p><div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-stone-500"><strong className="text-stone-800">{request.eventDate ? dateFormat.format(request.eventDate) : "Date à préciser"}</strong>{request.guestCount ? <span>· {request.guestCount} pers.</span> : null}<RequestSourceBadge source={request.source} /></div></div><div className="flex items-center justify-end gap-2"><RequestStatusSelect status={request.status} label={`Statut de ${request.contactName}`} onChange={onStatusChange} /><details onClick={(event) => event.stopPropagation()} className="relative"><summary aria-label={`Actions pour ${request.contactName}`} className="list-none rounded-md p-2 text-stone-500 hover:bg-stone-100"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-stone-200 bg-white p-1 shadow-lg"><button type="button" onClick={onDelete} className="w-full rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details><ChevronRight className="size-5 text-stone-300" /></div></article>;
+  const events = getRequestEvents(request);
+  const single = events.length === 1 ? events[0] : undefined;
+  const eventTypes = [...new Set(events.map(event => event.serviceType || event.label))].join(" · ");
+  return <article onClick={onOpen} className="grid cursor-pointer gap-3 px-5 py-3.5 transition hover:bg-[#fffaf4] sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"><div className="min-w-0"><h3 className="truncate font-semibold">{request.contactName}</h3><p className="mt-1 truncate text-sm text-stone-600">{eventTypes || "Événement à préciser"}</p><div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-stone-500"><strong className="text-stone-800">{requestDateSummary(request)}</strong>{single?.guestCount != null ? <span>· {single.guestCount} pers.</span> : null}<RequestSourceBadge source={request.source} /></div></div><div className="flex items-center justify-end gap-2"><RequestStatusSelect status={request.status} label={`Statut de ${request.contactName}`} onChange={onStatusChange} /><details onClick={(event) => event.stopPropagation()} className="relative"><summary aria-label={`Actions pour ${request.contactName}`} className="list-none rounded-md p-2 text-stone-500 hover:bg-stone-100"><MoreHorizontal className="size-5" /></summary><div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-stone-200 bg-white p-1 shadow-lg"><button type="button" onClick={onDelete} className="w-full rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Supprimer</button></div></details><ChevronRight className="size-5 text-stone-300" /></div></article>;
 }
 
 function DeleteRequestDialog({ request, onClose, onConfirm }: { request: LocalRequest; onClose: () => void; onConfirm: () => Promise<void> }) {
-  const eventDate = request.eventDate ? dateFormat.format(request.eventDate) : "date à préciser";
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><section role="dialog" aria-modal="true" aria-labelledby="delete-request-title" className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 id="delete-request-title" className="font-serif text-2xl font-bold">Supprimer la demande ?</h2><p className="mt-3 text-sm text-stone-600">Supprimer la demande de <strong>{request.contactName}</strong> du <strong>{eventDate}</strong> ?</p><p className="mt-2 text-xs text-stone-500">Elle ne sera plus affichée dans TrisThom.</p><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-sm font-bold text-stone-700">Annuler</button><button type="button" onClick={() => void onConfirm()} className="rounded-md bg-red-700 px-3 py-2 text-sm font-bold text-white">Supprimer</button></div></section></div>;
+  const eventDate = requestDateSummary(request);
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><section role="dialog" aria-modal="true" aria-labelledby="delete-request-title" className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 id="delete-request-title" className="font-serif text-2xl font-bold">Supprimer la demande ?</h2><p className="mt-3 text-sm text-stone-600">Supprimer la demande de <strong>{request.contactName}</strong> — <strong>{eventDate}</strong> ?</p><p className="mt-2 text-xs text-stone-500">Elle ne sera plus affichée dans TrisThom.</p><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-sm font-bold text-stone-700">Annuler</button><button type="button" onClick={() => void onConfirm()} className="rounded-md bg-red-700 px-3 py-2 text-sm font-bold text-white">Supprimer</button></div></section></div>;
 }
 
 function RequestForm({

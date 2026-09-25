@@ -20,6 +20,7 @@ import type * as destructiveOperations from "../destructiveOperations.js";
 import type * as directus from "../directus.js";
 import type * as directusSync from "../directusSync.js";
 import type * as directusWebhook from "../directusWebhook.js";
+import type * as effectiveRequestEvents from "../effectiveRequestEvents.js";
 import type * as emailTemplates from "../emailTemplates.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   directus: typeof directus;
   directusSync: typeof directusSync;
   directusWebhook: typeof directusWebhook;
+  effectiveRequestEvents: typeof effectiveRequestEvents;
   emailTemplates: typeof emailTemplates;
   healthCheck: typeof healthCheck;
   http: typeof http;

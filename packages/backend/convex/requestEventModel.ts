@@ -2,16 +2,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { findMissingInformation } from "./requestQualification";
 
-export type EventFields = Pick<Doc<"requestEvents">, "label" | "date" | "startTime" | "endTime" | "address" | "guestCount" | "serviceType" | "format" | "notes" | "status">;
+import { effectiveRequestEvents, type EventFields } from "./effectiveRequestEvents";
 
-export function legacyRequestEvent(request: Doc<"requests">): EventFields {
-  return {
-    label: request.eventType || "Prestation actuelle",
-    date: request.eventDate, startTime: request.eventStartTime, endTime: request.eventEndTime,
-    address: request.eventAddress || request.venue, guestCount: request.guestCount,
-    serviceType: request.eventType, notes: request.specialNeeds,
-    status: request.status === "annule" ? "annulee" : ["accepte", "termine"].includes(request.status) ? "confirmee" : "demandee",
-  };
+export async function loadEffectiveRequestEvents(ctx: QueryCtx | MutationCtx, request: Doc<"requests">) {
+  return effectiveRequestEvents(request, await requestEventRows(ctx, request._id));
 }
 
 export function validateEvent(fields: EventFields): EventFields {

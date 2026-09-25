@@ -31,3 +31,30 @@ Une **contrainte alimentaire** peut être un régime, une allergie ou une intol�
 ## Charge prévisionnelle
 
 La **charge prévisionnelle** regroupe les prestations confirmées et les dossiers encore en devis pour une même date. Les prestations confirmées pèsent davantage dans la décision ; les devis signalent un risque mais ne bloquent pas la date.
+
+## Dossiers et prestations
+
+**Client** :
+Personne ou organisation à l’origine du besoin. Un client peut avoir plusieurs dossiers.
+
+**Dossier commercial** :
+Affaire ou besoin global d’un client, regroupant conversation, offre, devis, notes, facturation et une ou plusieurs prestations.
+_À éviter_ : employer « prestation » pour désigner toute l’affaire.
+
+**Prestation** :
+Livraison ou événement réel, à une date donnée, appartenant toujours à un dossier commercial.
+
+**Statut commercial** :
+Avancement de l’affaire dans le dossier, de la qualification à la confirmation puis à la clôture.
+
+**Statut opérationnel** :
+État d’une prestation particulière. L’annulation d’une date n’annule pas les autres prestations du dossier.
+
+**Demandes** :
+Liste commerciale dans laquelle chaque ligne représente un dossier.
+
+**Planning** :
+Calendrier dans lequel chaque entrée représente une prestation datée.
+
+**Prestations** :
+Vue opérationnelle des prestations à réaliser, distinctes même lorsqu’elles appartiennent au même dossier.

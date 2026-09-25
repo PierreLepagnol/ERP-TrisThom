@@ -1,3 +1,4 @@
+import type { EffectiveRequestEvent } from "@ERPTrisThom/backend/convex/effectiveRequestEvents";
 import {
   createContext,
   useCallback,
@@ -149,6 +150,7 @@ export type CatalogItem = {
 };
 
 export type LocalRequest = {
+  effectiveEvents?: EffectiveRequestEvent[];
   _id: string;
   status: RequestStatus;
   source: RequestSource;

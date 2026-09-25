@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { findMissingInformation } from "./requestQualification";
-import { applyLegacyEventChanges, syncRequestEventSummary } from "./requestEventModel";
+import { applyLegacyEventChanges, loadEffectiveRequestEvents, syncRequestEventSummary } from "./requestEventModel";
 
 import { authComponent } from "./auth";
 import { requireDestructiveCrmResetEnabled } from "./destructiveOperations";
@@ -457,10 +457,11 @@ export const workspace = query({
       followUpsByRequest.set(task.requestId, entries);
     }
     return {
-      requests: requests.filter(isVisibleRequest).map((request) => {
+      requests: await Promise.all(requests.filter(isVisibleRequest).map(async (request) => {
         const quote = quoteByRequest.get(request._id);
         return {
           ...request,
+          effectiveEvents: await loadEffectiveRequestEvents(ctx, request),
           notes: (notesByRequest.get(request._id) ?? []).map((note) => ({
             id: note._id,
             content: note.content,
@@ -480,7 +481,7 @@ export const workspace = query({
           })),
           quote: quote ? legacyQuoteFromRecord(quote) : undefined,
         };
-      }),
+      })),
       quotes,
       catalog: catalog
         .sort((first, second) => first.name.localeCompare(second.name, "fr"))
@@ -1114,7 +1115,9 @@ export const confirmService = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    if (!request.eventDate || !request.eventStartTime || !request.eventEndTime) {
+    const activeEvents = (await loadEffectiveRequestEvents(ctx, request)).filter(event => event.status !== "annulee");
+    const first = activeEvents[0];
+    if (!first?.date || !first.startTime || !first.endTime) {
       throw new Error("La date et les horaires sont obligatoires avant confirmation.");
     }
     if (!allowedTransitions[request.status].includes("accepte")) throw new Error("La prestation ne peut pas être confirmée depuis ce statut.");
@@ -1126,6 +1129,12 @@ export const confirmService = mutation({
     await ctx.db.patch(version._id, { status: "accepte", updatedAt: now });
     await ctx.db.patch(quote._id, { status: "accepte", acceptedAt: now, updatedAt: now });
     await ctx.db.patch(request._id, { status: "accepte", acceptedAt: now, handledAt: now, quoteAmountCents: quote.totalTtcCents, calendarSyncStatus: "pending", updatedAt: now });
+    for (const event of activeEvents) {
+      if (event._id && event.status !== "confirmee") {
+        await ctx.db.patch(event._id, { status: "confirmee", updatedAt: now });
+      }
+    }
+    await syncRequestEventSummary(ctx, request._id);
     await addHistory(ctx, request._id, "Prestation confirmée après acceptation du devis", now);
     return null;
   },

@@ -160,3 +160,55 @@ test("rejects unauthenticated, deleted and cross-dossier changes", async () => {
   await t.run(ctx => ctx.db.patch(requestId, { deletedAt: 1 }));
   await expect(user.mutation(api.requestEvents.create, { requestId, fields: fields() })).rejects.toThrow("introuvable");
 });
+
+
+test("workspace keeps one dossier and exposes both real dates without legacy duplication", async () => {
+  const { user, requestId } = await setup();
+  await user.mutation(api.requestEvents.create, { requestId, fields: { ...fields(10), status: "confirmee" } });
+  const workspace = await user.query(api.crm.workspace, {});
+  expect(workspace.requests).toHaveLength(1);
+  expect(workspace.requests[0].effectiveEvents.map(event => event.date)).toEqual([day(8), day(10)]);
+  expect(workspace.requests[0].effectiveEvents).toEqual(await user.query(api.requestEvents.list, { requestId }));
+});
+
+test("workspace exposes one virtual historical prestation without migrating the dossier", async () => {
+  const { t, user } = await setup();
+  const workspace = await user.query(api.crm.workspace, {});
+  expect(workspace.requests[0].effectiveEvents).toMatchObject([{ historical: true, date: day(8) }]);
+  expect(await t.run(ctx => ctx.db.query("requestEvents").collect())).toHaveLength(0);
+});
+
+test("confirmService confirms active real prestations and preserves cancellations", async () => {
+  const { t, user, requestId } = await setup({ status: "devis_envoye" });
+  await user.mutation(api.requestEvents.create, { requestId, fields: { ...fields(10), status: "potentielle" } });
+  const cancelledId = await user.mutation(api.requestEvents.create, { requestId, fields: { ...fields(6), status: "annulee" } });
+  await t.run(async ctx => {
+    const quoteId = await ctx.db.insert("quotes", {
+      requestId, quoteNumber: "D-TEST", status: "envoye", createdAt: 1, updatedAt: 1,
+      totalHtCents: 10000, totalVatCents: 1000, totalTtcCents: 11000,
+    });
+    const versionId = await ctx.db.insert("quoteVersions", {
+      quoteId, versionNumber: 1, status: "envoye", createdAt: 1, updatedAt: 1,
+      discountCents: 0, issueDate: day(1), validUntil: day(30), depositPercent: 30,
+      included: "", excluded: "", logistics: "", template: "libre",
+      totalHtCents: 10000, totalVatCents: 1000, totalTtcCents: 11000,
+    });
+    await ctx.db.patch(quoteId, { currentVersionId: versionId });
+    // Real prestations must remain authoritative even when the compatibility mirror is stale.
+    await ctx.db.patch(requestId, { eventDate: undefined, eventStartTime: undefined, eventEndTime: undefined });
+  });
+  await user.mutation(api.crm.confirmService, { requestId });
+  const events = await user.query(api.requestEvents.list, { requestId });
+  expect(events.filter(event => event._id !== cancelledId).map(event => event.status)).toEqual(["confirmee", "confirmee"]);
+  expect(events.find(event => event._id === cancelledId)?.status).toBe("annulee");
+  expect(await t.run(ctx => ctx.db.get(requestId))).toMatchObject({ status: "accepte", eventDate: day(8) });
+});
+
+test("confirmation cannot resurrect a dossier whose only real prestation is cancelled", async () => {
+  const { t, user, requestId } = await setup({ status: "devis_envoye" });
+  await t.run(ctx => ctx.db.insert("requestEvents", {
+    requestId, ...fields(8), status: "annulee", createdAt: 1, updatedAt: 1,
+  }));
+  await expect(user.mutation(api.crm.confirmService, { requestId })).rejects.toThrow("date et les horaires");
+  expect((await user.query(api.requestEvents.list, { requestId }))[0].status).toBe("annulee");
+});

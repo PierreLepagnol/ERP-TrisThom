@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import { authComponent } from "./auth";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { legacyRequestEvent, requestEventRows, syncRequestEventSummary, validateEvent } from "./requestEventModel";
+import { legacyRequestEvent } from "./effectiveRequestEvents";
+import { loadEffectiveRequestEvents, requestEventRows, syncRequestEventSummary, validateEvent } from "./requestEventModel";
 
 const eventFields = v.object({
   label: v.string(), date: v.optional(v.number()),
@@ -28,10 +29,7 @@ export const list = query({
   args: { requestId: v.id("requests") },
   handler: async (ctx, { requestId }) => {
     const request = await requireRequest(ctx, requestId);
-    const rows = await requestEventRows(ctx, requestId);
-    return rows.length
-      ? rows.map(row => ({ ...row, historical: false }))
-      : [{ ...legacyRequestEvent(request), _id: null, historical: true }];
+    return await loadEffectiveRequestEvents(ctx, request);
   },
 });
 
