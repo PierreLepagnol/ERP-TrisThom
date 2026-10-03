@@ -1,3 +1,5 @@
+import { ClientChoice } from "@/components/requests/client-choice";
+import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
 import { getRequestEvents, requestDateSummary } from "@/domain/effective-services";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useAction, useMutation } from "convex/react";
@@ -67,6 +69,8 @@ function RequestsPage() {
     try {
       await createRequest({
         source: String(formData.get("source")) as Source,
+        contactId: optionalValue(formData, "contactId"),
+        organizationName: optionalValue(formData, "organizationName"),
         contactName: String(formData.get("contactName") ?? ""),
         contactEmail: optionalValue(formData, "contactEmail"),
         contactPhone: optionalValue(formData, "contactPhone"),
@@ -121,6 +125,7 @@ function RequestsPage() {
       const budget = String(data.get("budgetPerPerson") ?? "");
       const requestId = await createImportedRequest({
         source: "1001traiteur",
+        contactId: optionalValue(data, "contactId") as Id<"contacts"> | undefined,
         externalSourceId: `pdf:${pdfAnalysis.filename}`,
         historyLabel: "Demande importée depuis un PDF 1001 Traiteur",
         contactName: String(data.get("contactName") ?? "").trim() || "Contact à identifier",
@@ -225,7 +230,7 @@ function RequestForm({
           ))}
         </select>
       </FormField>
-      <FormField label="Nom du contact">
+      <ClientChoice /><FormField label="Nom du contact">
         <input name="contactName" required className="input" placeholder="Nom ou entreprise" />
       </FormField>
       <FormField label="E-mail"><input name="contactEmail" type="email" className="input" /></FormField>
@@ -263,7 +268,7 @@ function PdfImportForm({ isSaving, analysis, onImport, onCancel, onCreate }: { i
     const { parsed } = analysis;
     return <form onSubmit={(event) => void onCreate(event)} className="grid max-w-3xl gap-4 md:grid-cols-2">
       <div className="md:col-span-2 rounded-md bg-[#fff8ef] p-4 text-sm"><strong>PDF analysé : {analysis.filename}</strong><p className="mt-1 text-stone-600">Vérifiez et corrigez les informations avant de créer le dossier. Les champs vides resteront à confirmer.</p></div>
-      <FormField label="Nom du contact"><input name="contactName" defaultValue={parsed.contactName ?? ""} className="input" /></FormField>
+      <ClientChoice /><FormField label="Nom du contact"><input name="contactName" defaultValue={parsed.contactName ?? ""} className="input" /></FormField>
       <FormField label="Entreprise"><input name="organizationName" defaultValue={parsed.organizationName ?? ""} className="input" /></FormField>
       <FormField label="E-mail"><input name="contactEmail" type="email" defaultValue={parsed.contactEmail ?? ""} className="input" /></FormField>
       <FormField label="Téléphone"><input name="contactPhone" defaultValue={parsed.contactPhone ?? ""} className="input" /></FormField>

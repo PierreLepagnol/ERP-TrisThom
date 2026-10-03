@@ -1,3 +1,5 @@
+import { Purchases } from "@/components/requests/purchases";
+import { DossierClient } from "@/components/requests/client-choice";
 import {
   Link,
   Outlet,
@@ -133,8 +135,7 @@ function RequestDetailPage() {
     api.customerEmailData.listForRequest,
     foundRequest ? { requestId: foundRequest._id as Id<"requests"> } : "skip",
   );
-  const requestEvents = useQuery(api.requestEvents.list, foundRequest ? { requestId: foundRequest._id as Id<"requests"> } : "skip");
-  const eventCount = requestEvents?.length ?? 1;
+  const eventCount = 1;
   const sendEmail = useAction(api.customerEmail.send);
   const emailTemplates = useQuery(api.emailTemplates.list);
   const saveEmailTemplate = useMutation(api.emailTemplates.save);
@@ -149,7 +150,9 @@ function RequestDetailPage() {
   const [reopenDialog, setReopenDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [sameDayOpen, setSameDayOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<RequestDetailTab | "offre" | "preparation">("resume");
+  const [activeTab, setActiveTab] = useState<RequestDetailTab | "offre" | "preparation">(location.hash === "preparation" ? "preparation" : "resume");
+
+  useEffect(() => { setActiveTab(location.hash === "preparation" ? "preparation" : "resume"); }, [requestId, location.hash]);
 
   useEffect(() => {
     if (foundRequest) setForm(toForm(foundRequest));
@@ -176,12 +179,10 @@ function RequestDetailPage() {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await updateRequest(request!._id, fromForm(form));
-    setEditing(false);
-    toast.success("Dossier enregistré localement");
+    try { await updateRequest(request!._id, fromForm(form)); setEditing(false); toast.success("Dossier enregistré"); } catch (error) { toast.error(error instanceof Error ? error.message : "Enregistrement impossible"); }
   }
   async function changeStatus(status: RequestStatus) {
-    await updateStatus({ requestId: request!._id, status, eventStartTime: request!.eventStartTime, eventEndTime: request!.eventEndTime });
+    try { await updateStatus({ requestId: request!._id, status }); } catch (error) { toast.error(error instanceof Error ? error.message : "Changement de statut impossible"); }
   }
   async function copyMessage() {
     await navigator.clipboard.writeText(request!.message ?? "");
@@ -237,7 +238,7 @@ function RequestDetailPage() {
   const quoteSummary = requestQuoteSummary(quoteRecord);
   const latestNote = latestRequestNote(request);
   const progressIndex = status.category === "lost" ? -1 : request.status === "accepte" ? activeRequestStatuses.length : activeRequestStatuses.indexOf(request.status);
-  const visibleTabs: Array<[RequestDetailTab | "offre" | "preparation", string]> = [["resume", "Demande"], ["echanges", "Conversation"], ["offre", "Offre"], ["devis", "Devis"]];
+  const visibleTabs: Array<[RequestDetailTab | "offre" | "preparation", string]> = [["resume", "Demande"], ["echanges", "Conversation"], ["offre", "Offre"], ["devis", "Devis"], ["historique", "Historique"]];
   if (hasPreparation) visibleTabs.push(["preparation", "Préparation"]);
   const eventCards = [["Besoins particuliers", request.specialNeeds || "Aucun besoin particulier renseigné"], ["Contraintes alimentaires", request.dietaryRequirements || "Aucune contrainte renseignée"], ["Personnel / matériel", request.staffingNeeds || "Aucun besoin renseigné"]];
   const sameDayRequests = request.eventDate ? requests.filter((item) => item._id !== request._id && item.eventDate && new Date(item.eventDate).toDateString() === new Date(request.eventDate!).toDateString()) : [];
@@ -250,12 +251,13 @@ function RequestDetailPage() {
       </section>
       {sameDayRequests.length ? <section className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 text-sm"><strong>{request.eventDate ? dateFormat.format(request.eventDate) : ""}</strong><span className="ml-3 text-stone-600">{sameDayRequests.length} autre{sameDayRequests.length > 1 ? "s" : ""} dossier{sameDayRequests.length > 1 ? "s" : ""} prévu{sameDayRequests.length > 1 ? "s" : ""} ce jour</span><button onClick={() => setSameDayOpen(true)} className="ml-3 font-bold text-[#8b1629]">Voir les dossiers de cette date</button></section> : null}
       <nav aria-label="Sections du dossier" className="flex gap-1 overflow-x-auto border-b border-stone-200">{visibleTabs.map(([tab, label]) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeTab === tab ? "border-[#8b1629] text-[#8b1629]" : "border-transparent text-stone-500"}`}>{label}</button>)}</nav>
-      {activeTab === "resume" ? <RequestEvents key={request._id} requestId={request._id as Id<"requests">} events={requestEvents} /> : null}
+      {activeTab === "resume" || Boolean(request.legacyEvents?.length) ? <><DossierClient key={request._id} request={request} /><RequestEvents key={request._id} request={request} /></> : null}
       {activeTab === "resume" ? <section className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><h2 className="font-serif text-2xl font-bold">Demande</h2><button onClick={() => setEditing(true)} className="text-sm font-bold text-[#8b1629]">Modifier</button></div><dl className="mt-5 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2"><Info label="Client" value={request.organizationName || request.contactName} /><Info label="E-mail" value={request.contactEmail} /><Info label="Téléphone" value={request.contactPhone} /><Info label="Type d’événement" value={request.eventType} /><Info label={eventCount > 1 ? "Première prestation" : "Date"} value={request.eventDate ? dateFormat.format(request.eventDate) : undefined} /><Info label={eventCount > 1 ? "Personnes (première prestation)" : "Nombre de personnes"} value={request.guestCount ? `${request.guestCount}` : undefined} /><Info label={eventCount > 1 ? "Adresse (première prestation)" : "Adresse"} value={request.eventAddress || request.venue} /><Info label="Source" value={sourceLabels[request.source]} /></dl>{request.message ? <div className="mt-6 border-t border-stone-100 pt-5"><p className="text-xs font-bold tracking-wide text-stone-400 uppercase">Message du client</p><p className="mt-2 whitespace-pre-wrap text-sm text-stone-700">{request.message}</p></div> : null}<RequestReminders request={request} onAdd={async (title, dueAt) => { await scheduleFollowUp(request._id, title, dueAt); toast.success("Rappel ajouté"); }} onComplete={async (followUpId) => { await completeFollowUp(request._id, followUpId); toast.success("Rappel terminé"); }} onDelete={async (followUpId) => { await deleteFollowUp(request._id, followUpId); toast.success("Rappel supprimé"); }} /></section> : null}
       {activeTab === "echanges" ? <div className="space-y-5"><ChangeSuggestions requestId={request._id as Id<"requests">} /><EmailConversation messages={emailMessages ?? []} onReply={() => setMessageOpen(true)} /><Notes request={request} note={note} setNote={setNote} onAdd={async () => { if (!note.trim()) return; await addNote(request._id, note.trim()); setNote(""); toast.success("Note ajoutée"); }} /></div> : null}
       {activeTab === "offre" ? <RequestOfferBuilder request={request} catalog={catalog} /> : null}
       {activeTab === "devis" ? <div className="space-y-5"><QuoteSummaryCard quote={quoteRecord} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} onCreateVersion={async () => { if (!quoteRecord) { await quote(); return; } const current = quoteRecord.versions.find((item) => item.id === quoteRecord.currentVersionId); if (!current) return; await createQuoteVersion(request._id, legacyQuoteFromVersion(current, quoteRecord.versions, quoteRecord.quoteNumber)); toast.success("Nouvelle version créée"); navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } }); }} /><QuoteVersions quote={quoteRecord} requestId={request._id} onOpen={() => navigate({ to: "/requests/$requestId/quote", params: { requestId: request._id } })} /><RequestDocuments requestId={request._id as Id<"requests">} /></div> : null}
-      {activeTab === "preparation" && hasPreparation ? <Preparation request={request} quote={quoteRecord} /> : null}
+      {activeTab === "historique" ? <History request={request} /> : null}
+      {activeTab === "preparation" && hasPreparation ? <><Preparation request={request} quote={quoteRecord} /><Purchases requestId={request._id as Id<"requests">} /></> : null}
       {editing ? <RequestInformation form={form} setForm={setForm} onSave={save} onCancel={() => { setForm(toForm(request)); setEditing(false); }} /> : null}
       {messageOpen && <MessageModal initial={draftMessage} recipient={request.contactEmail} subject={emailSubject(emailMessages ?? [])} templates={[...builtInEmailTemplates, ...(emailTemplates ?? [])]} onClose={() => setMessageOpen(false)} onSaveTemplate={async (name, subject, body) => { await saveEmailTemplate({ name, subject, body }); toast.success("Modèle d’e-mail enregistré"); }} onSend={async (subject, body, attachments) => { if (!request.contactEmail) throw new Error("Ajoutez l’adresse e-mail du client avant d’envoyer."); const lastMessage = (emailMessages ?? []).at(-1); await sendEmail({ requestId: request._id as Id<"requests">, recipientEmail: request.contactEmail, subject, body, inReplyTo: lastMessage?.messageId, attachments }); toast.success("E-mail envoyé et ajouté au dossier"); setMessageOpen(false); }} />}
       {actionDialog && <ActionDialog kind={actionDialog} onClose={() => setActionDialog(null)} onSubmit={async (value) => { try { if (actionDialog === "followUp") { const dueAt = new Date(`${value}T12:00:00`).getTime(); if (Number.isNaN(dueAt)) throw new Error("Choisissez une date de relance."); await scheduleFollowUp(request._id, dueAt); toast.success("Relance programmée"); } else { await closeRequest(request._id, actionDialog, value); toast.success(actionDialog === "refuse" ? "Demande marquée comme perdue" : "Demande annulée"); } setActionDialog(null); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } }} />}
@@ -911,7 +913,7 @@ function ReopenDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (s
   const [status, setStatus] = useState<Exclude<RequestStatus, "annule">>("nouveau");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const options = requestStatusValues.filter((value): value is Exclude<RequestStatus, "annule"> => value !== "annule");
+  const options = commercialStatusValues.filter((value): value is Exclude<RequestStatus, "annule"> => value !== "annule");
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><section role="dialog" aria-modal="true" className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 className="font-serif text-2xl font-bold">Réouvrir le dossier</h2><p className="mt-2 text-sm text-stone-600">Le dossier est actuellement annulé. Ses données, notes, devis et historique seront conservés.</p><label className="mt-4 grid gap-1 text-sm font-semibold">Nouveau statut<select value={status} onChange={(event) => { setStatus(event.target.value as Exclude<RequestStatus, "annule">); setError(""); }} className="input">{options.map((value) => <option key={value} value={value}>{requestStatusConfig[value].label}</option>)}</select></label>{error ? <p className="mt-3 rounded bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</p> : null}<div className="mt-5 flex justify-end gap-2"><button onClick={onClose} disabled={saving} className="px-3 py-2 text-sm font-bold">Annuler</button><button disabled={saving} onClick={async () => { setSaving(true); try { await onSubmit(status); } catch (reason) { setError(reason instanceof Error ? reason.message : "Réouverture impossible."); setSaving(false); } }} className="rounded-md bg-[#650d1c] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? "Réouverture…" : "Réouvrir le dossier"}</button></div></section></div>;
 }
 

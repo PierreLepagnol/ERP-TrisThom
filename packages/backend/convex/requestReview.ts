@@ -1,3 +1,4 @@
+import { assertSingleService } from "./crm";
 import { v } from "convex/values";
 
 import { authComponent } from "./auth";
@@ -29,6 +30,7 @@ export const decide = mutation({
     if (!request) throw new Error("Dossier introuvable.");
     const now = Date.now();
     if (args.decision === "apply") {
+      await assertSingleService(ctx, request);
       if (!allowedFields.includes(suggestion.field as (typeof allowedFields)[number])) throw new Error("Champ de modification invalide.");
       const field = suggestion.field as (typeof allowedFields)[number];
       const value = ["eventDate", "guestCount", "budgetCents", "budgetPerPersonCents"].includes(field)

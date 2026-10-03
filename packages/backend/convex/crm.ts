@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { findMissingInformation } from "./requestQualification";
-import { applyLegacyEventChanges, loadEffectiveRequestEvents, syncRequestEventSummary } from "./requestEventModel";
+import { normalizeDossierStatus, assertDossierTransition, validateDossierFields } from "./dossierStatus";
 
 import { authComponent } from "./auth";
 import { requireDestructiveCrmResetEnabled } from "./destructiveOperations";
@@ -177,22 +177,9 @@ type LocalQuoteInput = {
   versions: unknown[];
 };
 
-const allowedTransitions: Record<RequestStatus, readonly RequestStatus[]> = {
-  nouveau: ["nouveau", "a_qualifier", "qualifie", "refuse", "annule"],
-  a_qualifier: ["a_qualifier", "qualifie", "refuse", "annule"],
-  qualifie: ["qualifie", "devis_a_preparer", "refuse", "annule"],
-  devis_a_preparer: ["devis_a_preparer", "devis_envoye", "refuse", "annule"],
-  devis_envoye: ["devis_envoye", "relance", "accepte", "refuse", "annule"],
-  relance: ["relance", "devis_envoye", "accepte", "refuse", "annule"],
-  accepte: ["accepte", "annule"],
-  termine: ["termine"],
-  refuse: ["refuse"],
-  annule: ["annule"],
-};
-
 const statusLabel: Record<RequestStatus, string> = {
   nouveau: "Nouveau", a_qualifier: "Nouveau", qualifie: "Devis à préparer",
-  devis_a_preparer: "Devis à préparer", devis_envoye: "En attente client", relance: "En attente client",
+  devis_a_preparer: "Devis à préparer", devis_envoye: "Devis envoyé", relance: "Devis envoyé",
   accepte: "Confirmé", termine: "Terminé", refuse: "Perdu", annule: "Annulé",
 };
 
@@ -236,7 +223,7 @@ function quoteTotals(lines: LocalQuoteInput["lines"], discountCents: number) {
 
 async function getRequestOrThrow(ctx: QueryCtx | MutationCtx, requestId: Id<"requests">) {
   const request = await ctx.db.get(requestId);
-  if (!request) throw new Error("Demande introuvable.");
+  if (!request || request.deletedAt != null) throw new Error("Demande introuvable.");
   return request;
 }
 
@@ -247,6 +234,26 @@ async function addHistory(
   createdAt = Date.now(),
 ) {
   await ctx.db.insert("requestHistory", { requestId, label, createdAt });
+}
+
+async function changeDossierStatus(ctx: MutationCtx, request: Doc<"requests">, input: RequestStatus) {
+  await assertSingleService(ctx, request);
+  const status = normalizeDossierStatus(input);
+  const quote = await ctx.db.query("quotes").withIndex("by_requestId", q => q.eq("requestId", request._id)).unique();
+  const version = quote?.currentVersionId ? await ctx.db.get(quote.currentVersionId) : null;
+  assertDossierTransition(request, status, { exists: Boolean(version), sent: Boolean(version && (version.sentAt || ["envoye", "accepte"].includes(version.status))) });
+  const now = Date.now();
+  if (status === "devis_envoye" && quote && version) {
+    await ctx.db.patch(version._id, { status: "envoye", sentAt: version.sentAt ?? now, updatedAt: now });
+    await ctx.db.patch(quote._id, { status: "envoye", sentAt: quote.sentAt ?? now, updatedAt: now });
+    await createFollowUps(ctx, request, now);
+  }
+  if (status === "accepte" && quote && version) {
+    await ctx.db.patch(version._id, { status: "accepte", updatedAt: now });
+    await ctx.db.patch(quote._id, { status: "accepte", acceptedAt: quote.acceptedAt ?? now, updatedAt: now });
+  }
+  await ctx.db.patch(request._id, { status, acceptedAt: status === "accepte" ? request.acceptedAt ?? now : request.acceptedAt, updatedAt: now });
+  if (status !== normalizeDossierStatus(request.status)) await addHistory(ctx, request._id, "Statut : " + statusLabel[request.status] + " → " + statusLabel[status], now);
 }
 
 async function createFollowUps(ctx: MutationCtx, request: Doc<"requests">, now: number) {
@@ -461,7 +468,8 @@ export const workspace = query({
         const quote = quoteByRequest.get(request._id);
         return {
           ...request,
-          effectiveEvents: await loadEffectiveRequestEvents(ctx, request),
+          status: normalizeDossierStatus(request.status),
+          legacyEvents: request.singleServiceAt == null ? await ctx.db.query("requestEvents").withIndex("by_requestId_and_date", q => q.eq("requestId", request._id)).take(101) : [],
           notes: (notesByRequest.get(request._id) ?? []).map((note) => ({
             id: note._id,
             content: note.content,
@@ -498,6 +506,8 @@ export const createRequest = mutation({
     source: requestSource,
     externalSourceId: v.optional(v.string()),
     historyLabel: v.optional(v.string()),
+    contactId: v.optional(v.id("contacts")),
+    title: v.optional(v.string()),
     contactName: v.string(),
     contactEmail: v.optional(v.string()),
     contactPhone: v.optional(v.string()),
@@ -520,12 +530,16 @@ export const createRequest = mutation({
     await requireAuthenticatedUser(ctx);
     const now = Date.now();
     const { historyLabel, ...requestInput } = args;
-    const contactName = requestInput.contactName.trim() || "Contact à identifier";
+    validateDossierFields(requestInput);
+    const customer = await resolveContact(ctx, requestInput);
+    const contactName = customer.contactName;
     const requestId = await ctx.db.insert("requests", {
       ...requestInput,
+      ...customer,
+      singleServiceAt: now,
       contactName,
       status: "nouveau",
-      missingInformation: findMissingInformation(requestInput),
+      missingInformation: findMissingInformation({ ...requestInput, ...customer }),
       createdAt: now,
       updatedAt: now,
     });
@@ -544,17 +558,9 @@ export const updateStatus = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    const now = Date.now();
-    await ctx.db.patch(request._id, {
-      status: args.status,
-      eventStartTime: args.eventStartTime ?? request.eventStartTime,
-      eventEndTime: args.eventEndTime ?? request.eventEndTime,
-      acceptedAt: args.status === "accepte" ? now : request.acceptedAt,
-      calendarSyncStatus: args.status === "accepte" ? "pending" : request.calendarSyncStatus,
-      updatedAt: now,
-    });
-    await addHistory(ctx, request._id, `Statut : ${statusLabel[request.status]} → ${statusLabel[args.status]}`, now);
+    await changeDossierStatus(ctx, request, args.status);
     return null;
+
   },
 });
 
@@ -576,40 +582,11 @@ export const reopenCancelledRequest = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    if (request.status !== "annule") {
-      throw new Error("Seul un dossier annulé peut être réouvert.");
-    }
-    const quote = await ctx.db
-      .query("quotes")
-      .withIndex("by_requestId", (index) => index.eq("requestId", request._id))
-      .unique();
-    const versions = quote
-      ? await ctx.db
-        .query("quoteVersions")
-        .withIndex("by_quoteId_and_versionNumber", (index) => index.eq("quoteId", quote._id))
-        .take(100)
-      : [];
-    const sent = versions.some((version) => version.status === "envoye" || Boolean(version.sentAt));
-    const missingInformation = findMissingInformation(request);
-    if (["qualifie", "devis_a_preparer"].includes(args.status) && missingInformation.length) {
-      throw new Error(`À compléter : ${missingInformation.join(", ")}`);
-    }
-    if (["devis_envoye", "relance"].includes(args.status) && !sent) {
-      throw new Error("Un devis envoyé est nécessaire pour ce statut.");
-    }
-    if (args.status === "accepte" && (!sent || !request.eventDate || !request.eventStartTime || !request.eventEndTime)) {
-      throw new Error("Un devis envoyé, la date et les horaires sont obligatoires avant confirmation.");
-    }
-    const now = Date.now();
-    await ctx.db.patch(request._id, {
-      status: args.status,
-      archivedAt: undefined,
-      missingInformation,
-      acceptedAt: args.status === "accepte" ? now : request.acceptedAt,
-      updatedAt: now,
-    });
-    await addHistory(ctx, request._id, `Dossier réouvert : passage de Annulé à ${args.status.replaceAll("_", " ")}`, now);
+    if (request.status !== "annule") throw new Error("Seul un dossier annulé peut être réouvert.");
+    await changeDossierStatus(ctx, request, args.status);
+    await ctx.db.patch(request._id, { archivedAt: undefined });
     return null;
+
   },
 });
 
@@ -617,6 +594,7 @@ export const updateRequest = mutation({
   args: {
     requestId: v.id("requests"),
     changes: v.object({
+      title: v.optional(v.union(v.string(), v.null())),
       organizationName: v.optional(v.union(v.string(), v.null())),
       contactName: v.optional(v.string()),
       contactEmail: v.optional(v.union(v.string(), v.null())),
@@ -640,15 +618,16 @@ export const updateRequest = mutation({
     const changes = Object.fromEntries(
       Object.entries(args.changes).map(([key, value]) => [key, value ?? undefined]),
     );
-    const hasEvents = await applyLegacyEventChanges(ctx, request, changes);
+    if ("title" in changes) changes.title = typeof changes.title === "string" ? changes.title.trim() || undefined : undefined;
+    await assertSingleService(ctx, request);
     const next = { ...request, ...changes };
+    validateDossierFields(next);
     const now = Date.now();
     await ctx.db.patch(request._id, {
       ...changes,
       missingInformation: findMissingInformation(next),
       updatedAt: now,
     });
-    if (hasEvents) await syncRequestEventSummary(ctx, request._id);
     await addHistory(ctx, request._id, "Informations du dossier modifiées", now);
     return null;
   },
@@ -660,14 +639,11 @@ export const qualifyRequest = mutation({
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
     const missing = findMissingInformation(request);
-    if (missing.length) throw new Error(`À compléter : ${missing.join(", ")}`);
-    if (!allowedTransitions[request.status].includes("qualifie")) {
-      throw new Error("La demande ne peut pas être qualifiée depuis son statut actuel.");
-    }
-    const now = Date.now();
-    await ctx.db.patch(request._id, { status: "qualifie", missingInformation: [], updatedAt: now });
-    await addHistory(ctx, request._id, "Demande qualifiée", now);
+    if (missing.length) throw new Error("À compléter : " + missing.join(", "));
+    await ctx.db.patch(request._id, { missingInformation: [], updatedAt: Date.now() });
+    await addHistory(ctx, request._id, "Informations vérifiées");
     return null;
+
   },
 });
 
@@ -703,15 +679,9 @@ export const startQuotePreparation = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    if (["refuse", "annule", "accepte"].includes(request.status)) {
-      throw new Error("Ce dossier ne peut plus ouvrir un devis.");
-    }
-    const now = Date.now();
-    await ctx.db.patch(request._id, { status: "devis_a_preparer", missingInformation: findMissingInformation(request), updatedAt: now });
-    if (request.status !== "devis_a_preparer") {
-      await addHistory(ctx, request._id, "Préparation du devis commencée", now);
-    }
+    if (!["accepte", "termine"].includes(request.status)) await changeDossierStatus(ctx, request, "devis_a_preparer");
     return null;
+
   },
 });
 
@@ -743,13 +713,11 @@ export const closeRequest = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    if (!allowedTransitions[request.status].includes(args.status)) {
-      throw new Error("Cette clôture n’est pas autorisée depuis le statut actuel.");
-    }
+
     const reason = args.reason.trim();
     if (!reason) throw new Error("Un motif est obligatoire.");
     const now = Date.now();
-    await ctx.db.patch(request._id, { status: args.status, updatedAt: now });
+    await changeDossierStatus(ctx, request, args.status);
     await ctx.db.insert("requestNotes", {
       requestId: request._id,
       content: `${args.status === "refuse" ? "Refus" : "Annulation"} : ${reason}`,
@@ -803,6 +771,7 @@ export const deleteFollowUp = mutation({
 });
 
 async function saveQuoteRecord(ctx: MutationCtx, request: Doc<"requests">, input: LocalQuoteInput) {
+  await assertSingleService(ctx, request);
   if (input.lines.length > 200) throw new Error("Un devis ne peut pas dépasser 200 lignes.");
   const existing = await ctx.db
     .query("quotes")
@@ -878,13 +847,13 @@ export const saveQuote = mutation({
     const stored = await saveQuoteRecord(ctx, request, args.quote as LocalQuoteInput);
     const sent = args.quote.status === "envoye";
     await ctx.db.patch(request._id, {
-      status: sent ? "devis_envoye" : request.status,
+      status: normalizeDossierStatus(request.status),
       quoteNumber: stored.number,
       quoteAmountCents: stored.totals.totalTtcCents,
       nextActionAt: sent ? now + 3 * 86_400_000 : request.nextActionAt,
       updatedAt: now,
     });
-    if (sent && request.status !== "devis_envoye") await createFollowUps(ctx, request, now);
+    if (sent && ["nouveau", "devis_a_preparer", "devis_envoye"].includes(normalizeDossierStatus(request.status))) await changeDossierStatus(ctx, request, "devis_envoye");
     await addHistory(ctx, request._id, sent ? "Devis marqué comme envoyé" : "Brouillon de devis enregistré", now);
     return null;
   },
@@ -895,6 +864,7 @@ export const createQuoteVersion = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
+    await assertSingleService(ctx, request);
     const existing = await ctx.db
       .query("quotes")
       .withIndex("by_requestId", (index) => index.eq("requestId", request._id))
@@ -981,6 +951,7 @@ export const restoreQuoteVersion = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
+    await assertSingleService(ctx, request);
     const quote = await ctx.db
       .query("quotes")
       .withIndex("by_requestId", (index) => index.eq("requestId", request._id))
@@ -1029,6 +1000,7 @@ export const deleteQuoteVersion = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
+    await assertSingleService(ctx, request);
     const quote = await ctx.db
       .query("quotes")
       .withIndex("by_requestId", (index) => index.eq("requestId", request._id))
@@ -1057,7 +1029,7 @@ export const deleteQuoteVersion = mutation({
     if (remaining.length === 0) {
       await ctx.db.delete(quote._id);
       await ctx.db.patch(request._id, {
-        status: request.missingInformation.length ? "a_qualifier" : "devis_a_preparer",
+        status: "devis_a_preparer",
         quoteNumber: undefined,
         quoteAmountCents: undefined,
         updatedAt: now,
@@ -1080,7 +1052,7 @@ export const deleteQuoteVersion = mutation({
       updatedAt: now,
     });
     await ctx.db.patch(request._id, {
-      status: current.status === "envoye" ? "devis_envoye" : current.status === "accepte" ? "accepte" : request.status,
+      status: normalizeDossierStatus(request.status),
       acceptedAt: current.status === "accepte" ? quote.acceptedAt : undefined,
       quoteAmountCents: current.totalTtcCents,
       updatedAt: now,
@@ -1095,18 +1067,9 @@ export const markQuoteSent = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    const quote = await ctx.db.query("quotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).unique();
-    if (!quote?.currentVersionId) throw new Error("Aucun devis ne peut être envoyé pour ce dossier.");
-    if (!allowedTransitions[request.status].includes("devis_envoye")) throw new Error("Le devis ne peut pas être envoyé depuis ce statut.");
-    const version = await ctx.db.get(quote.currentVersionId);
-    if (!version) throw new Error("Version de devis introuvable.");
-    const now = Date.now();
-    await ctx.db.patch(version._id, { status: "envoye", sentAt: now, updatedAt: now });
-    await ctx.db.patch(quote._id, { status: "envoye", sentAt: now, updatedAt: now });
-    await ctx.db.patch(request._id, { status: "devis_envoye", quoteAmountCents: quote.totalTtcCents, nextActionAt: now + 3 * 86_400_000, updatedAt: now });
-    await createFollowUps(ctx, request, now);
-    await addHistory(ctx, request._id, `Devis ${quote.quoteNumber} marqué comme envoyé`, now);
+    await changeDossierStatus(ctx, request, "devis_envoye");
     return null;
+
   },
 });
 
@@ -1115,28 +1078,9 @@ export const confirmService = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
-    const activeEvents = (await loadEffectiveRequestEvents(ctx, request)).filter(event => event.status !== "annulee");
-    const first = activeEvents[0];
-    if (!first?.date || !first.startTime || !first.endTime) {
-      throw new Error("La date et les horaires sont obligatoires avant confirmation.");
-    }
-    if (!allowedTransitions[request.status].includes("accepte")) throw new Error("La prestation ne peut pas être confirmée depuis ce statut.");
-    const quote = await ctx.db.query("quotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).unique();
-    if (!quote?.currentVersionId) throw new Error("Un devis est nécessaire avant de confirmer la prestation.");
-    const version = await ctx.db.get(quote.currentVersionId);
-    if (!version) throw new Error("Version de devis introuvable.");
-    const now = Date.now();
-    await ctx.db.patch(version._id, { status: "accepte", updatedAt: now });
-    await ctx.db.patch(quote._id, { status: "accepte", acceptedAt: now, updatedAt: now });
-    await ctx.db.patch(request._id, { status: "accepte", acceptedAt: now, handledAt: now, quoteAmountCents: quote.totalTtcCents, calendarSyncStatus: "pending", updatedAt: now });
-    for (const event of activeEvents) {
-      if (event._id && event.status !== "confirmee") {
-        await ctx.db.patch(event._id, { status: "confirmee", updatedAt: now });
-      }
-    }
-    await syncRequestEventSummary(ctx, request._id);
-    await addHistory(ctx, request._id, "Prestation confirmée après acceptation du devis", now);
+    await changeDossierStatus(ctx, request, "accepte");
     return null;
+
   },
 });
 
@@ -1194,6 +1138,7 @@ export const createServicePurchase = mutation({
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
+    await assertSingleService(ctx, request);
     if (request.status !== "accepte") throw new Error("Les achats sont réservés aux prestations confirmées.");
     if (!args.product.trim() || !args.unit.trim() || args.quantity <= 0) throw new Error("Produit, quantité et unité sont obligatoires.");
     const now = Date.now();
@@ -1366,3 +1311,95 @@ export const resetDemoData = mutation({
     return { requestCount: requestIds.size, catalogItemCount: args.catalog.length };
   },
 });
+
+export async function assertSingleService(ctx: QueryCtx | MutationCtx, request: Doc<"requests">) {
+  if (request.singleServiceAt != null) return;
+  const rows = await ctx.db.query("requestEvents").withIndex("by_requestId_and_date", q => q.eq("requestId", request._id)).take(1);
+  if (rows.length) throw new Error("Reprenez les anciennes prestations de ce dossier avant de modifier ses données ou son statut.");
+}
+
+async function resolveContact(ctx: MutationCtx, input: { contactId?: Id<"contacts">; contactName: string; contactEmail?: string; contactPhone?: string; organizationName?: string }) {
+  let contact = input.contactId ? await ctx.db.get(input.contactId) : null;
+  if (input.contactId && !contact) throw new Error("Client introuvable.");
+  if (!contact) {
+    const now = Date.now();
+    const organizationId = input.organizationName?.trim() ? await ctx.db.insert("organizations", { name: input.organizationName.trim(), createdAt: now, updatedAt: now }) : undefined;
+    const contactId = await ctx.db.insert("contacts", { displayName: input.contactName.trim() || "Contact à identifier", email: input.contactEmail?.trim() || undefined, phone: input.contactPhone?.trim() || undefined, organizationId, createdAt: now, updatedAt: now });
+    contact = await ctx.db.get(contactId);
+  }
+  if (!contact) throw new Error("Client introuvable.");
+  const organization = contact.organizationId ? await ctx.db.get(contact.organizationId) : null;
+  return { contactId: contact._id, contactName: contact.displayName, contactEmail: contact.email, contactPhone: contact.phone, organizationName: organization?.name };
+}
+
+export const listClients = query({ args: {}, handler: async ctx => {
+  await requireAuthenticatedUser(ctx);
+  const contacts = await ctx.db.query("contacts").take(500);
+  return await Promise.all(contacts.map(async contact => ({ ...contact, organization: contact.organizationId ? await ctx.db.get(contact.organizationId) : null })));
+} });
+
+export const saveClient = mutation({ args: { contactId: v.optional(v.id("contacts")), name: v.string(), email: v.optional(v.string()), phone: v.optional(v.string()), organization: v.optional(v.string()), billingAddress: v.optional(v.string()) }, handler: async (ctx, args) => {
+  await requireAuthenticatedUser(ctx);
+  if (!args.name.trim()) throw new Error("Le nom du client est obligatoire.");
+  const now = Date.now();
+  const previous = args.contactId ? await ctx.db.get(args.contactId) : null;
+  if (args.contactId && !previous) throw new Error("Client introuvable.");
+  let organizationId = previous?.organizationId;
+  if (args.organization?.trim() || args.billingAddress?.trim()) {
+    const values = { name: args.organization?.trim() || args.name.trim(), billingAddress: args.billingAddress?.trim() || undefined, updatedAt: now };
+    if (organizationId) await ctx.db.patch(organizationId, values);
+    else organizationId = await ctx.db.insert("organizations", { ...values, createdAt: now });
+  }
+  const values = { displayName: args.name.trim(), email: args.email?.trim() || undefined, phone: args.phone?.trim() || undefined, organizationId, updatedAt: now };
+  if (previous) { await ctx.db.patch(previous._id, values); return previous._id; }
+  return await ctx.db.insert("contacts", { ...values, createdAt: now });
+} });
+
+export const assignClient = mutation({ args: { requestId: v.id("requests"), contactId: v.optional(v.id("contacts")) }, handler: async (ctx, args) => {
+  await requireAuthenticatedUser(ctx);
+  const request = await getRequestOrThrow(ctx, args.requestId);
+  const customer = await resolveContact(ctx, { ...request, contactId: args.contactId });
+  await ctx.db.patch(request._id, { ...customer, updatedAt: Date.now() });
+  await addHistory(ctx, request._id, "Client du dossier choisi : " + customer.contactName);
+  return customer.contactId;
+} });
+
+export const duplicateRequest = mutation({ args: { requestId: v.id("requests"), eventDate: v.number() }, handler: async (ctx, args) => {
+  await requireAuthenticatedUser(ctx);
+  const request = await getRequestOrThrow(ctx, args.requestId);
+  await assertSingleService(ctx, request);
+  validateDossierFields({ eventDate: args.eventDate });
+  const customer = await resolveContact(ctx, request);
+  if (!request.contactId) await ctx.db.patch(request._id, { contactId: customer.contactId });
+  const now = Date.now();
+  const fields = { ...customer, eventDate: args.eventDate, eventType: request.eventType, eventStartTime: request.eventStartTime, eventEndTime: request.eventEndTime, eventAddress: request.eventAddress || request.venue, guestCount: request.guestCount, specialNeeds: request.specialNeeds, dietaryRequirements: request.dietaryRequirements, staffingNeeds: request.staffingNeeds };
+  const requestId = await ctx.db.insert("requests", { ...fields, source: "manuel", status: "nouveau", singleServiceAt: now, createdAt: now, updatedAt: now, missingInformation: findMissingInformation(fields) });
+  await addHistory(ctx, requestId, "Créé pour une autre date depuis le dossier " + request._id + ". Devis et achats à préparer séparément.");
+  return requestId;
+} });
+
+export const reviewLegacyServices = mutation({ args: { requestId: v.id("requests"), retainedEventId: v.id("requestEvents"), expectedUpdatedAt: v.number(), financialDecision: v.string() }, handler: async (ctx, args) => {
+  await requireAuthenticatedUser(ctx);
+  const request = await getRequestOrThrow(ctx, args.requestId);
+  if (request.singleServiceAt != null || request.updatedAt !== args.expectedUpdatedAt) throw new Error("Le dossier a changé. Rechargez la reprise.");
+  if (args.financialDecision.trim().length < 10) throw new Error("Précisez la décision concernant le devis et les achats existants.");
+  const events = await ctx.db.query("requestEvents").withIndex("by_requestId_and_date", q => q.eq("requestId", request._id)).take(101);
+  if (events.length > 100) throw new Error("Ce dossier nécessite une reprise accompagnée : plus de 100 prestations.");
+  const retained = events.find(event => event._id === args.retainedEventId);
+  if (!retained) throw new Error("Choisissez la prestation qui conserve les documents et achats existants.");
+  const customer = await resolveContact(ctx, request);
+  const now = Date.now();
+  const fields = (event: Doc<"requestEvents">) => ({ eventDate: event.date, eventStartTime: event.startTime, eventEndTime: event.endTime, eventAddress: event.address, venue: undefined, guestCount: event.guestCount, eventType: event.serviceType || event.label });
+  const created: Id<"requests">[] = [];
+  for (const event of events) {
+    const values = fields(event);
+    if (event._id === retained._id) continue;
+    const requestId = await ctx.db.insert("requests", { ...customer, ...values, source: "manuel", status: event.status === "annulee" ? "annule" : "nouveau", singleServiceAt: now, splitFromRequestId: request._id, specialNeeds: [request.specialNeeds, event.format, event.notes].filter(Boolean).join("\n"), dietaryRequirements: request.dietaryRequirements, staffingNeeds: request.staffingNeeds, missingInformation: findMissingInformation({ ...customer, ...values }), createdAt: now, updatedAt: now });
+    await addHistory(ctx, requestId, "Reprise du dossier " + request._id + ". Conversation et documents originaux conservés dans ce dossier source. Aucun montant commercial dupliqué. Ancien état : " + event.status);
+    created.push(requestId);
+  }
+  const values = fields(retained);
+  await ctx.db.patch(request._id, { ...customer, ...values, specialNeeds: [request.specialNeeds, retained.format, retained.notes].filter(Boolean).join("\n"), singleServiceAt: now, status: retained.status === "annulee" ? "annule" : normalizeDossierStatus(request.status), missingInformation: findMissingInformation({ ...request, ...values }), updatedAt: now });
+  await addHistory(ctx, request._id, "Reprise validée : devis, achats et conversation conservés pour " + retained.label + ". Décision : " + args.financialDecision.trim() + ". Nouveaux dossiers : " + created.join(", "));
+  return created;
+} });

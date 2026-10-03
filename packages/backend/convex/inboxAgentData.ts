@@ -10,14 +10,13 @@ export const load = internalQuery({
     const email = entry.senderEmail?.toLowerCase();
     const directRequests = email ? await ctx.db.query("requests").withIndex("by_contactEmail", q => q.eq("contactEmail", email)).take(20) : [];
     const requests = directRequests.filter(request => !request.deletedAt).slice(0, 10);
-    const context = [] as Array<{ request: typeof requests[number]; events: Array<unknown>; quotes: Array<unknown>; messages: Array<unknown> }>;
+    const context = [] as Array<{ request: typeof requests[number]; quotes: Array<unknown>; messages: Array<unknown> }>;
     for (const request of requests) {
-      const [events, quotes, messages] = await Promise.all([
-        ctx.db.query("requestEvents").withIndex("by_requestId_and_date", q => q.eq("requestId", request._id)).take(30),
+      const [quotes, messages] = await Promise.all([
         ctx.db.query("quotes").withIndex("by_requestId", q => q.eq("requestId", request._id)).take(5),
         ctx.db.query("emailMessages").withIndex("by_requestId_and_sentAt", q => q.eq("requestId", request._id)).order("desc").take(5),
       ]);
-      context.push({ request, events, quotes, messages });
+      context.push({ request, quotes, messages });
     }
     return { entry, analysis, context };
   },

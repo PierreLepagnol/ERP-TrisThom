@@ -1,4 +1,3 @@
-import type { EffectiveRequestEvent } from "@ERPTrisThom/backend/convex/effectiveRequestEvents";
 import {
   createContext,
   useCallback,
@@ -150,7 +149,9 @@ export type CatalogItem = {
 };
 
 export type LocalRequest = {
-  effectiveEvents?: EffectiveRequestEvent[];
+  contactId?: string;
+  splitFromRequestId?: string;
+  legacyEvents?: Array<{ _id: string; label: string; date?: number; status: string; address?: string; guestCount?: number }>;
   _id: string;
   status: RequestStatus;
   source: RequestSource;
@@ -1054,7 +1055,7 @@ export function LocalCrmProvider({ children }: { children: React.ReactNode }) {
       if (missing.length)
         throw new Error(`À compléter : ${missing.join(", ")}`);
       if (request.status === "qualifie") return;
-      if (!getAllowedRequestStatuses(request.status).includes("qualifie"))
+      if (!getAllowedRequestStatuses(request.status).includes("devis_a_preparer"))
         throw new Error(
           "La demande ne peut pas être qualifiée depuis son statut actuel.",
         );

@@ -1,0 +1,21 @@
+import { useMutation, useQuery } from "convex/react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { api } from "@ERPTrisThom/backend/convex/_generated/api";
+import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
+import type { LocalRequest } from "@/lib/local-crm";
+
+export function ClientChoice() {
+  const clients = useQuery(api.crm.listClients);
+  return <label className="grid gap-1 text-sm font-semibold">Client<select name="contactId" className="input" defaultValue="" onChange={event => { const client = clients?.find(item => item._id === event.target.value); if (!client) return; const form = event.currentTarget.form; for (const [names, value] of [[["contactName", "name"], client.displayName], [["contactEmail", "email"], client.email], [["contactPhone", "phone"], client.phone], [["organizationName"], client.organization?.name]] as const) for (const name of names) { const input = form?.elements.namedItem(name); if (input instanceof HTMLInputElement) input.value = value || ""; } }}><option value="">Créer une fiche avec les coordonnées ci-dessous</option>{clients?.map(client => <option key={client._id} value={client._id}>{client.organization?.name ? client.organization.name + " · " : ""}{client.displayName}{client.email ? " · " + client.email : ""}</option>)}</select></label>;
+}
+export function DossierClient({ request }: { request: LocalRequest }) {
+  const assign = useMutation(api.crm.assignClient);
+  const duplicate = useMutation(api.crm.duplicateRequest);
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState("");
+  return <section className="rounded-xl border bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-serif text-xl font-bold">Client : {request.organizationName || request.contactName}</h2>{request.contactId && <Link to="/clients" search={{ client: request.contactId }} className="text-sm font-bold text-[#8b1629]">Ouvrir la fiche client</Link>}<button type="button" onClick={() => setOpen(!open)} className="text-sm font-bold">{open ? "Fermer" : "Choisir le client / autre date"}</button></div>{request.splitFromRequestId && <Link to="/requests/$requestId" params={{ requestId: request.splitFromRequestId }} className="mt-2 block text-sm underline">Dossier source : conversation et documents d’origine</Link>}{!request.contactId && <p className="mt-2 text-sm text-amber-800">Ce dossier historique reste à rattacher à une fiche client.</p>}{open && <div className="mt-4 grid gap-4 md:grid-cols-2"><form className="space-y-2" onSubmit={async event => { event.preventDefault(); if (busy) return; const data = new FormData(event.currentTarget); setBusy(true); try { await assign({ requestId: request._id as Id<"requests">, contactId: String(data.get("contactId") || "") as Id<"contacts"> || undefined }); toast.success("Client rattaché"); } catch (error) { toast.error(error instanceof Error ? error.message : "Action impossible"); } finally { setBusy(false); } }}><ClientChoice /><button disabled={busy} className="rounded border px-3 py-2 text-sm font-bold">Rattacher le client</button></form><form className="space-y-2" onSubmit={async event => { event.preventDefault(); if (busy) return; setBusy(true); try { const id = await duplicate({ requestId: request._id as Id<"requests">, eventDate: new Date(date + "T12:00:00").getTime() }); await navigate({ to: "/requests/$requestId", params: { requestId: id } }); } catch (error) { toast.error(error instanceof Error ? error.message : "Duplication impossible"); } finally { setBusy(false); } }}><label className="grid gap-1 text-sm font-semibold">Nouvelle date<input required type="date" value={date} onChange={event => setDate(event.target.value)} className="input" /></label><button disabled={busy || Boolean(request.legacyEvents?.length)} className="rounded border px-3 py-2 text-sm font-bold">Dupliquer pour une autre date</button><p className="text-xs text-stone-500">Coordonnées et préparation reprises ; devis et achats à établir séparément.</p></form></div>}</section>;
+}

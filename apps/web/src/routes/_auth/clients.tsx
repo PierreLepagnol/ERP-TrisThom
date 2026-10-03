@@ -1,59 +1,26 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Building2, Mail, Phone, Search, Users } from "lucide-react";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
-
+import { toast } from "sonner";
+import { api } from "@ERPTrisThom/backend/convex/_generated/api";
+import type { Id } from "@ERPTrisThom/backend/convex/_generated/dataModel";
 import { useConvexCrm } from "@/lib/convex-crm";
+import { requestStatusConfig } from "@/domain/request-status";
 
-export const Route = createFileRoute("/_auth/clients")({ component: ClientsPage });
-
-const formatDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric" });
-
+export const Route = createFileRoute("/_auth/clients")({ validateSearch: (search: Record<string, unknown>): { client?: string } => ({ client: typeof search.client === "string" ? search.client : undefined }), component: ClientsPage });
 function ClientsPage() {
-  const { clients } = useConvexCrm();
+  const { client: selected } = Route.useSearch();
+  const clients = useQuery(api.crm.listClients);
+  const save = useMutation(api.crm.saveClient);
+  const { requests, archivedRequests } = useConvexCrm();
   const [search, setSearch] = useState("");
-  const query = search.trim().toLowerCase();
-  const filteredClients = clients?.filter((client) =>
-    !query || [client.name, client.email, client.phone, client.organization]
-      .some((value) => value?.toLowerCase().includes(query)),
-  );
-
-  return (
-    <div className="space-y-7">
-      <section className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-bold tracking-[0.16em] text-[#7d6f67] uppercase">Carnet commercial</p>
-          <h1 className="mt-1 font-serif text-4xl font-bold">Clients</h1>
-          <p className="mt-2 text-sm text-stone-600">Les contacts regroupés automatiquement depuis vos demandes.</p>
-        </div>
-        <div className="flex items-center gap-2 rounded-md border border-stone-200 bg-white px-3 shadow-sm">
-          <Search className="size-4 text-stone-400" />
-          <input aria-label="Rechercher un client" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nom, e-mail, société…" className="w-64 bg-transparent py-2.5 text-sm outline-none" />
-        </div>
-      </section>
-
-      {!clients ? (
-        <p className="rounded-xl border border-stone-200 bg-white p-8 text-sm text-stone-500">Chargement des clients…</p>
-      ) : filteredClients?.length === 0 ? (
-        <p className="rounded-xl border border-stone-200 bg-white p-8 text-sm text-stone-500">Aucun client trouvé.</p>
-      ) : (
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredClients?.map((client) => (
-            <article key={client.email ?? client.phone ?? client.name} className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <span className="grid size-11 place-items-center rounded-full bg-[#f5ecee] font-serif text-lg font-bold text-[#8b1629]">{client.name.slice(0, 2).toUpperCase()}</span>
-                <span className="flex items-center gap-1 rounded-full bg-stone-100 px-2 py-1 text-xs font-semibold text-stone-600"><Users className="size-3" />{client.requestCount} dossier{client.requestCount > 1 ? "s" : ""}</span>
-              </div>
-              <h2 className="mt-4 font-serif text-xl font-bold">{client.name}</h2>
-              {client.organization ? <p className="mt-1 flex items-center gap-1.5 text-sm text-stone-500"><Building2 className="size-4" />{client.organization}</p> : null}
-              <div className="mt-4 space-y-2 text-sm">
-                {client.email ? <a href={`mailto:${client.email}`} className="flex items-center gap-2 text-[#8b1629] hover:underline"><Mail className="size-4" />{client.email}</a> : null}
-                {client.phone ? <a href={`tel:${client.phone}`} className="flex items-center gap-2 text-stone-700 hover:underline"><Phone className="size-4" />{client.phone}</a> : null}
-              </div>
-              <p className="mt-5 border-t border-stone-100 pt-3 text-xs text-stone-400">Dernière demande : {formatDate.format(client.lastRequestAt)}</p>
-            </article>
-          ))}
-        </section>
-      )}
-    </div>
-  );
+  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const client = clients?.find(item => item._id === selected);
+  const all = [...requests, ...archivedRequests];
+  const history = all.filter(request => request.contactId === selected).sort((a, b) => (b.eventDate ?? b.createdAt) - (a.eventDate ?? a.createdAt));
+  return <div className="space-y-6"><header className="flex flex-wrap justify-between gap-3"><h1 className="font-serif text-4xl font-bold">{client ? client.organization?.name || client.displayName : "Clients"}</h1>{selected ? <Link to="/clients" search={{}} className="font-bold text-[#8b1629]">Tous les clients</Link> : <button className="rounded border bg-white px-3 py-2 font-bold" onClick={() => setCreating(!creating)}>Nouveau client</button>}</header>{clients === undefined ? <p>Chargement des clients…</p> : selected && !client ? <p>Client introuvable.</p> : null}
+    {(creating || client) && <form key={client?._id || "new"} className="grid gap-4 rounded-xl border bg-white p-5 md:grid-cols-2" onSubmit={async event => { event.preventDefault(); if (busy) return; const data = new FormData(event.currentTarget); const value = (key: string) => String(data.get(key) || "").trim() || undefined; setBusy(true); try { await save({ contactId: client?._id as Id<"contacts"> | undefined, name: value("name") || "", email: value("email"), phone: value("phone"), organization: value("organization"), billingAddress: value("billingAddress") }); setCreating(false); toast.success("Fiche client enregistrée"); } catch (error) { toast.error(error instanceof Error ? error.message : "Enregistrement impossible"); } finally { setBusy(false); } }}>{[["name", "Contact principal", client?.displayName], ["organization", "Société", client?.organization?.name], ["email", "E-mail", client?.email], ["phone", "Téléphone", client?.phone], ["billingAddress", "Adresse de facturation", client?.organization?.billingAddress]].map(([name, label, value]) => <label key={name} className="grid gap-1 text-sm font-semibold">{label}<input className="input" name={name} required={name === "name"} type={name === "email" ? "email" : "text"} defaultValue={value || ""} /></label>)}<button disabled={busy} className="self-end rounded bg-[#650d1c] px-3 py-2 font-bold text-white">Enregistrer le client</button></form>}
+    {client ? <section className="rounded-xl border bg-white p-5"><h2 className="font-serif text-2xl font-bold">Dossiers</h2>{history.length ? history.map(request => <Link key={request._id} to="/requests/$requestId" params={{ requestId: request._id }} className="block border-b py-4"><strong>{request.eventDate == null ? "Date à préciser" : new Date(request.eventDate).toLocaleDateString("fr-FR")}</strong> · {request.eventType || "Prestation"} · {requestStatusConfig[request.status].label}</Link>) : <p className="mt-3 text-sm text-stone-500">Aucun dossier rattaché à ce client.</p>}</section> : !selected && <><input className="input max-w-md" aria-label="Rechercher un client" value={search} onChange={event => setSearch(event.target.value)} placeholder="Nom, société, e-mail…" /><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{clients?.filter(item => [item.displayName, item.email, item.organization?.name].some(value => value?.toLowerCase().includes(search.toLowerCase()))).map(item => <Link key={item._id} to="/clients" search={{ client: item._id }} className="rounded-xl border bg-white p-5"><h2 className="font-serif text-xl font-bold">{item.organization?.name || item.displayName}</h2><p className="mt-2 text-sm">{item.displayName}</p><p className="text-sm text-stone-500">{item.email} {item.phone}</p><p className="mt-3 text-xs">{all.filter(request => request.contactId === item._id).length} dossier(s)</p></Link>)}</div>{all.some(request => !request.contactId) && <section className="rounded-xl border border-amber-200 bg-amber-50 p-5"><h2 className="font-bold">Dossiers historiques sans fiche client</h2><p className="mt-2 text-sm">Ouvrez un dossier pour choisir sa fiche client. Aucun rapprochement automatique par e-mail ou téléphone.</p>{all.filter(request => !request.contactId).map(request => <Link key={request._id} to="/requests/$requestId" params={{ requestId: request._id }} className="mt-2 block text-sm underline">{request.organizationName || request.contactName} · {request.eventType || "Prestation"}</Link>)}</section>}</>}
+  </div>;
 }

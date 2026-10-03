@@ -3,23 +3,6 @@ import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { canCreateRequestForSource } from "./requestDeletion";
 
-function missingInformation(args: {
-  contactEmail?: string;
-  contactPhone?: string;
-  eventAddress?: string;
-  eventDate?: number;
-  eventType?: string;
-  guestCount?: number;
-}) {
-  const missing: string[] = [];
-  if (!args.contactEmail && !args.contactPhone) missing.push("Coordonnées du contact");
-  if (!args.eventDate) missing.push("Date de l'événement");
-  if (!args.eventAddress) missing.push("Adresse de l'événement");
-  if (!args.eventType) missing.push("Format souhaité");
-  if (!args.guestCount) missing.push("Nombre de personnes");
-  return missing;
-}
-
 export const ingestRequest = internalMutation({
   args: {
     externalSourceId: v.string(),
@@ -44,22 +27,14 @@ export const ingestRequest = internalMutation({
       return { requestId: existingRequest._id, created: false };
     }
 
+    const externalId = "directus:" + args.externalSourceId;
+    const existingEntry = await ctx.db.query("inboxMessages").withIndex("by_externalId", q => q.eq("externalId", externalId)).unique();
+    if (existingEntry) return { requestId: existingEntry.requestId ?? null, created: false };
+    const { externalSourceId, ...sourceData } = args;
     const now = Date.now();
-    const requestMissingInformation = missingInformation(args);
-    const requestId = await ctx.db.insert("requests", {
-      ...args,
-      source: "directus",
-      status: "nouveau",
-      missingInformation: requestMissingInformation,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.insert("requestHistory", {
-      requestId,
-      label: "Demande reçue depuis le site",
-      createdAt: now,
-    });
-    return { requestId, created: true };
+    await ctx.db.insert("inboxMessages", { externalId, source: "directus", sourceData, senderName: args.contactName, senderEmail: args.contactEmail, subject: "Formulaire du site — " + (args.eventType || "Demande"), body: args.message || "", receivedAt: now, attachmentNames: [], hasPdfAttachment: false, outcome: "review", reviewStatus: "pending", createdAt: now });
+    return { requestId: null, created: true };
+
   },
 });
 

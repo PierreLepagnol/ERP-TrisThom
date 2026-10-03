@@ -34,27 +34,30 @@ La **charge prévisionnelle** regroupe les prestations confirmées et les dossie
 
 ## Dossiers et prestations
 
+**Entrée** :
+Sollicitation reçue par formulaire, e-mail, plateforme ou téléphone, à vérifier humainement avant de choisir un client et de créer un dossier.
+
 **Client** :
-Personne ou organisation à l’origine du besoin. Un client peut avoir plusieurs dossiers.
+Personne ou organisation à l’origine du besoin, possédant ses coordonnées et son historique. Un client peut avoir plusieurs dossiers.
 
 **Dossier commercial** :
-Affaire ou besoin global d’un client, regroupant conversation, offre, devis, notes, facturation et une ou plusieurs prestations.
-_À éviter_ : employer « prestation » pour désigner toute l’affaire.
+Affaire d’un client portant sur une seule prestation, avec une date principale, sa conversation, son offre, ses devis, ses notes, sa préparation et ses achats. Plusieurs prestations constituent plusieurs dossiers du même client.
+_À éviter_ : regrouper plusieurs prestations dans un dossier.
 
 **Prestation** :
-Livraison ou événement réel, à une date donnée, appartenant toujours à un dossier commercial.
+Livraison ou événement concret correspondant à un dossier commercial, avec une date principale, un lieu et des quantités propres.
 
 **Statut commercial** :
-Avancement de l’affaire dans le dossier, de la qualification à la confirmation puis à la clôture.
+Avancement unique du dossier : Nouveau, Devis à préparer, Devis envoyé, Confirmé, Terminé, Perdu ou Annulé. Les informations manquantes et les rappels ne sont pas des statuts.
 
-**Statut opérationnel** :
-État d’une prestation particulière. L’annulation d’une date n’annule pas les autres prestations du dossier.
+**Rappel** :
+Action à effectuer à une échéance donnée sur un dossier, indépendamment de son statut commercial.
 
 **Demandes** :
-Liste commerciale dans laquelle chaque ligne représente un dossier.
+Vue des dossiers commerciaux actifs.
 
 **Planning** :
-Calendrier dans lequel chaque entrée représente une prestation datée.
+Vue des dossiers classés par date principale.
 
 **Prestations** :
-Vue opérationnelle des prestations à réaliser, distinctes même lorsqu’elles appartiennent au même dossier.
+Vue des dossiers confirmés, ouvrant leur préparation dans la même fiche dossier.

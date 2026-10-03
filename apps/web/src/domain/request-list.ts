@@ -7,7 +7,7 @@ export type RequestListView = "active" | "week" | "without_date" | "history";
 export function matchesRequestView(request: LocalRequest, view: RequestListView, now = Date.now()) {
   const status = normalizeRequestStatus(request.status);
   if (view === "history") return ["termine", "refuse", "annule"].includes(status);
-  const events = getRequestEvents(request).filter(event => event.status !== "annulee");
+  const events = getRequestEvents(request).filter(event => event.status !== "annule");
   if (view === "without_date") return events.some(event => event.date == null) && !["termine", "refuse", "annule"].includes(status);
   if (view === "week") { const end = now + 7 * 86_400_000; return Boolean(events.some(event => event.date != null && event.date >= now && event.date < end) && !["termine", "refuse", "annule"].includes(status)); }
   return !["termine", "refuse", "annule"].includes(status);
@@ -43,6 +43,6 @@ export function sortRequests(requests: readonly LocalRequest[], sort: "priority"
 }
 
 function firstEventDate(request: LocalRequest, fallback = Infinity) {
-  const dates = getRequestEvents(request).flatMap(event => event.status !== "annulee" && event.date != null ? [event.date] : []);
+  const dates = getRequestEvents(request).flatMap(event => event.status !== "annule" && event.date != null ? [event.date] : []);
   return dates.length ? Math.min(...dates) : fallback;
 }

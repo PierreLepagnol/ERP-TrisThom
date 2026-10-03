@@ -25,7 +25,7 @@ const schema = {
     summary: { type: "string" },
     messageType: { type: "string", enum: ["nouvelle_demande", "precision", "modification", "nouvelles_dates", "validation", "refus", "question", "paiement", "document", "modification_devis", "logistique", "non_commercial", "incertain"] },
     probableRequest: { type: "object", additionalProperties: false, required: ["requestId", "label", "confidence", "reason"], properties: { requestId: nullableString, label: nullableString, confidence: { type: "string", enum: ["elevee", "moyenne", "faible"] }, reason: { type: "string" } } },
-    actions: { type: "array", items: { type: "object", additionalProperties: false, required: ["type", "label", "confidence", "reason", "data"], properties: { type: { type: "string", enum: ["CREATE_REQUEST", "ATTACH_TO_REQUEST", "UPDATE_REQUEST", "CREATE_EVENT", "UPDATE_EVENT", "ADD_NOTE", "FLAG_QUOTE_REVISION", "IGNORE"] }, label: { type: "string" }, confidence: { type: "string", enum: ["elevee", "moyenne", "faible"] }, reason: { type: "string" }, data: actionData } } },
+    actions: { type: "array", items: { type: "object", additionalProperties: false, required: ["type", "label", "confidence", "reason", "data"], properties: { type: { type: "string", enum: ["CREATE_REQUEST", "ATTACH_TO_REQUEST", "UPDATE_REQUEST", "ADD_NOTE", "FLAG_QUOTE_REVISION", "IGNORE"] }, label: { type: "string" }, confidence: { type: "string", enum: ["elevee", "moyenne", "faible"] }, reason: { type: "string" }, data: actionData } } },
   },
 };
 
@@ -53,7 +53,7 @@ export const analyze = action({
     const openAiModel = env.OPENAI_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-5-mini";
     if (!openAiKey) throw new Error("OPENAI_API_KEY est manquante.");
     await ctx.runMutation(internal.inboxAgentData.save, { inboxMessageId: args.inboxMessageId, status: "pending_analysis" });
-    const payload = { mail: loaded.entry, crm: loaded.context.map(item => ({ request: item.request, events: item.events, quotes: item.quotes, recentMessages: item.messages })) };
+    const payload = { mail: loaded.entry, crm: loaded.context.map(item => ({ request: item.request, quotes: item.quotes, recentMessages: item.messages })) };
     try {
       const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${openAiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: openAiModel, input: [{ role: "system", content: [{ type: "input_text", text: "Tu es un assistant CRM. Tu ne modifies rien. Propose uniquement un plan prudent, fondé exclusivement sur le mail et le contexte ciblé. Ne choisis jamais un dossier ambigu; utilise une confiance faible. Les actions doivent être exploitables par un humain." }] }, { role: "user", content: [{ type: "input_text", text: JSON.stringify(payload) }] }], text: { format: { type: "json_schema", name: "inbox_action_plan", strict: true, schema } } }) });
       const raw = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }>; error?: { message?: unknown } };

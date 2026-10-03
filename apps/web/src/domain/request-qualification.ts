@@ -36,9 +36,11 @@ export function getRequestNextAction(request: LocalRequest, now = Date.now()): R
 
   if (request.archivedAt) return { title: "Dossier archivé", description: "Le statut métier est conservé dans les archives.", kind: "archive" };
   if (["refuse", "annule"].includes(request.status)) return { title: "Archiver le dossier", description: "Le dossier est terminé et peut être rangé sans perdre son statut métier.", kind: "archive" };
-  if (request.status === "accepte" || request.quote?.status === "accepte") return request.handledAt ? { title: "Archiver le dossier", description: "La prestation est confirmée et le dossier peut être rangé.", kind: "archive" } : { title: "Confirmer la prestation", description: "Le devis est accepté : confirmez l’organisation de l’événement.", kind: "prepare_service" };
+  if (request.status === "termine") return { title: "Prestation terminée", description: "Le dossier peut être consulté ou archivé.", kind: "archive" };
+  if (request.status === "accepte") return { title: "Préparer la prestation", description: "Retrouvez les quantités, la préparation et les achats du dossier.", kind: "prepare_service" };
+  if (request.quote?.status === "accepte") return request.handledAt ? { title: "Archiver le dossier", description: "La prestation est confirmée et le dossier peut être rangé.", kind: "archive" } : { title: "Confirmer la prestation", description: "Le devis est accepté : confirmez l’organisation de l’événement.", kind: "prepare_service" };
   if (missingCount > 0) return { title: "Contacter le client", description: `${missingCount} information${missingCount > 1 ? "s" : ""} reste${missingCount > 1 ? "nt" : ""} à demander avant le devis.`, kind: "contact" };
-  if (["nouveau", "a_qualifier"].includes(request.status)) return { title: "Qualifier la demande", description: "Toutes les informations nécessaires sont présentes.", kind: "qualify" };
+  if (["nouveau", "a_qualifier"].includes(request.status)) return { title: "Préparer le devis", description: "Les informations sont présentes : préparez la proposition.", kind: "quote" };
   if (request.quote?.status === "pret") return { title: "Envoyer le devis", description: "Le devis est prêt à être partagé avec le client.", kind: "send_quote" };
   if (request.status === "relance" && hasOverdueFollowUp) return { title: "Relancer le client", description: "Une relance est arrivée à échéance.", kind: "follow_up" };
   if (request.status === "devis_envoye" || request.quote?.status === "envoye" || request.status === "relance") return { title: "Attendre ou programmer une relance", description: hasOverdueFollowUp ? "Une relance mérite votre attention." : "Le devis est en attente de réponse client.", kind: "follow_up" };

@@ -9,12 +9,11 @@ export function getCurrentQuoteVersion(quote?: Quote): QuoteVersion | undefined 
 }
 
 export function getOperationalServices(requests: readonly LocalRequest[], now = Date.now()) {
-  const services = getEffectiveServices(requests).filter(event => event.status === "confirmee");
+  const services = getEffectiveServices(requests).filter(event => ["accepte", "termine"].includes(event.status));
   const today = new Date(now); today.setHours(0, 0, 0, 0);
   const upcoming = services
-    .filter(event => normalizeRequestStatus(event.request.status) === "accepte" && (event.date ?? Infinity) >= today.getTime())
+    .filter(event => normalizeRequestStatus(event.request.status) === "accepte" && event.request.archivedAt == null)
     .sort((left, right) => (left.date ?? Infinity) - (right.date ?? Infinity));
-  // There is no separate "terminée" event status yet: retain the commercial completion rule.
   const recentlyCompleted = services
     .filter(event => normalizeRequestStatus(event.request.status) === "termine" && event.date != null && event.date >= now - 30 * day && event.date <= now)
     .sort((left, right) => (right.date ?? 0) - (left.date ?? 0));

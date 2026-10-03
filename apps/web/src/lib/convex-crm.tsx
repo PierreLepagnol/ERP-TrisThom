@@ -28,6 +28,7 @@ const quoteVersionId = (value: string) => value as Id<"quoteVersions">;
 
 export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
   const workspace = useQuery(api.crm.workspace);
+  const customerRecords = useQuery(api.crm.listClients);
   const createRequestMutation = useMutation(api.crm.createRequest);
   const updateStatusMutation = useMutation(api.crm.updateStatus);
   const reopenCancelledRequestMutation = useMutation(api.crm.reopenCancelledRequest);
@@ -79,6 +80,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
         staffingNeeds,
       } = input;
       return await createRequestMutation({
+        contactId: input.contactId as Id<"contacts"> | undefined,
         source,
         contactName,
         contactEmail,
@@ -309,30 +311,12 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
       ["accepte", "refuse", "annule"].includes(request.status),
     );
     const accepted = decided.filter((request) => request.status === "accepte");
-    const clientMap = new Map<string, LocalCrm["clients"][number]>();
-    for (const request of nonDeletedRequests) {
-      const key =
-        request.contactEmail?.toLowerCase() ??
-        request.contactPhone ??
-        request.contactName.toLowerCase();
-      const existing = clientMap.get(key);
-      clientMap.set(key, {
-        name: request.contactName,
-        email: request.contactEmail ?? existing?.email,
-        phone: request.contactPhone ?? existing?.phone,
-        organization: request.organizationName ?? existing?.organization,
-        requestCount: (existing?.requestCount ?? 0) + 1,
-        lastRequestAt: Math.max(existing?.lastRequestAt ?? 0, request.createdAt),
-      });
-    }
     return {
       requests: visibleRequests,
       archivedRequests,
       quotes,
       catalog,
-      clients: [...clientMap.values()].sort(
-        (first, second) => second.lastRequestAt - first.lastRequestAt,
-      ),
+      clients: (customerRecords ?? []).map(client => ({ name: client.displayName, email: client.email, phone: client.phone, organization: client.organization?.name, requestCount: nonDeletedRequests.filter(request => request.contactId === client._id).length, lastRequestAt: Math.max(client.createdAt, ...nonDeletedRequests.filter(request => request.contactId === client._id).map(request => request.createdAt)) })),
       createRequest,
       updateStatus,
       reopenCancelledRequest,
@@ -407,6 +391,7 @@ export function ConvexCrmProvider({ children }: { children: React.ReactNode }) {
     addNote,
     archiveRequest,
     catalog,
+    customerRecords,
     closeRequest,
     completeFollowUp,
     deleteFollowUp,
