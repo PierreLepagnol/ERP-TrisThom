@@ -43,6 +43,10 @@ export default defineSchema({
   }).index("by_name", ["name"]),
 
   requests: defineTable({
+    contactId: v.optional(v.id("contacts")),
+    singleServiceAt: v.optional(v.number()),
+    splitFromRequestId: v.optional(v.id("requests")),
+    title: v.optional(v.string()),
     status: requestStatus,
     source: requestSource,
     externalSourceId: v.optional(v.string()),
@@ -108,6 +112,8 @@ export default defineSchema({
   }).index("by_receivedAt", ["receivedAt"]),
 
   inboxMessages: defineTable({
+    source: v.optional(requestSource),
+    sourceData: v.optional(v.object({ contactName: v.string(), contactEmail: v.optional(v.string()), contactPhone: v.optional(v.string()), eventType: v.optional(v.string()), eventDate: v.optional(v.number()), eventAddress: v.optional(v.string()), guestCount: v.optional(v.number()), message: v.optional(v.string()) })),
     externalId: v.string(),
     messageId: v.optional(v.string()),
     senderName: v.optional(v.string()),
@@ -128,7 +134,7 @@ export default defineSchema({
     .index("by_requestId", ["requestId"]),
 
   requestEvents: defineTable({
-    requestId: v.id("requests"), label: v.string(), date: v.optional(v.number()), startTime: v.optional(v.string()), endTime: v.optional(v.string()), address: v.optional(v.string()), guestCount: v.optional(v.number()), serviceType: v.optional(v.string()), format: v.optional(v.string()), notes: v.optional(v.string()), status: v.union(v.literal("demandee"), v.literal("potentielle"), v.literal("confirmee"), v.literal("annulee")), createdAt: v.number(), updatedAt: v.number(),
+    requestId: v.id("requests"), label: v.string(), date: v.optional(v.number()), startTime: v.optional(v.string()), endTime: v.optional(v.string()), address: v.optional(v.string()), guestCount: v.optional(v.number()), serviceType: v.optional(v.string()), format: v.optional(v.string()), notes: v.optional(v.string()), status: v.union(v.literal("prevue"), v.literal("terminee"), v.literal("demandee"), v.literal("potentielle"), v.literal("confirmee"), v.literal("annulee")), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_requestId_and_date", ["requestId", "date"]),
 
   inboxAnalyses: defineTable({

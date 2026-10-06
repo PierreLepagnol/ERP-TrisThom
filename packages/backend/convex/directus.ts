@@ -3,23 +3,6 @@ import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { canCreateRequestForSource } from "./requestDeletion";
 
-function missingInformation(args: {
-  contactEmail?: string;
-  contactPhone?: string;
-  eventAddress?: string;
-  eventDate?: number;
-  eventType?: string;
-  guestCount?: number;
-}) {
-  const missing: string[] = [];
-  if (!args.contactEmail && !args.contactPhone) missing.push("Coordonnées du contact");
-  if (!args.eventDate) missing.push("Date de l'événement");
-  if (!args.eventAddress) missing.push("Adresse de l'événement");
-  if (!args.eventType) missing.push("Format souhaité");
-  if (!args.guestCount) missing.push("Nombre de personnes");
-  return missing;
-}
-
 export const ingestRequest = internalMutation({
   args: {
     externalSourceId: v.string(),
@@ -44,22 +27,32 @@ export const ingestRequest = internalMutation({
       return { requestId: existingRequest._id, created: false };
     }
 
-    const now = Date.now();
-    const requestMissingInformation = missingInformation(args);
-    const requestId = await ctx.db.insert("requests", {
-      ...args,
+    const externalId = "directus:" + args.externalSourceId;
+    const existingMessage = await ctx.db
+      .query("inboxMessages")
+      .withIndex("by_externalId", (index) => index.eq("externalId", externalId))
+      .unique();
+
+    if (existingMessage) {
+      return { inboxMessageId: existingMessage._id, created: false };
+    }
+
+    const { externalSourceId, ...sourceData } = args;
+    const inboxMessageId = await ctx.db.insert("inboxMessages", {
       source: "directus",
-      status: "nouveau",
-      missingInformation: requestMissingInformation,
-      createdAt: now,
-      updatedAt: now,
+      externalId,
+      senderName: args.contactName,
+      senderEmail: args.contactEmail,
+      subject: "Formulaire du site",
+      body: args.message,
+      attachmentNames: [],
+      hasPdfAttachment: false,
+      outcome: "review",
+      reviewStatus: "pending",
+      createdAt: Date.now(),
+      sourceData,
     });
-    await ctx.db.insert("requestHistory", {
-      requestId,
-      label: "Demande reçue depuis le site",
-      createdAt: now,
-    });
-    return { requestId, created: true };
+    return { inboxMessageId, created: true };
   },
 });
 
