@@ -33,6 +33,7 @@ import type * as inboxPoller from "../inboxPoller.js";
 import type * as magicLinkEmail from "../magicLinkEmail.js";
 import type * as pdfImport from "../pdfImport.js";
 import type * as privateData from "../privateData.js";
+import type * as repriseOct2026 from "../repriseOct2026.js";
 import type * as requestDeletion from "../requestDeletion.js";
 import type * as requestDocuments from "../requestDocuments.js";
 import type * as requestOffers from "../requestOffers.js";
@@ -72,6 +73,7 @@ declare const fullApi: ApiFromModules<{
   magicLinkEmail: typeof magicLinkEmail;
   pdfImport: typeof pdfImport;
   privateData: typeof privateData;
+  repriseOct2026: typeof repriseOct2026;
   requestDeletion: typeof requestDeletion;
   requestDocuments: typeof requestDocuments;
   requestOffers: typeof requestOffers;
