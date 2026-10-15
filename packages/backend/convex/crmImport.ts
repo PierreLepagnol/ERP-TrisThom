@@ -1,3 +1,4 @@
+import { calendarDb } from "./googleCalendarTracking";
 import { v } from "convex/values";
 import { env, action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -20,7 +21,7 @@ export const writeBatch = internalMutation({ args: { records: v.array(record), d
     if (existing) { result.unchanged++; continue; }
     if (args.dryRun) { result.created++; continue; }
     const now = Date.now();
-    const requestId = await ctx.db.insert("requests", { source: item.source, externalSourceId: item.externalSourceId, status: normalize(item.status) as any, contactName: item.contactName || "Contact à identifier", contactEmail: item.contactEmail, contactPhone: item.contactPhone, organizationName: item.organizationName, eventType: item.eventType, eventDate: noonUtc(item.eventDate), eventStartTime: item.eventStartTime, eventEndTime: item.eventEndTime, venue: item.venue, eventAddress: item.eventAddress, guestCount: item.guestCount, budgetCents: item.budgetCents, quoteNumber: item.quoteNumber, quoteAmountCents: item.quoteAmountCents, nextActionAt: item.nextActionAt, missingInformation: [], archivedAt: item.archived ? now : undefined, createdAt: now, updatedAt: now });
+    const requestId = await calendarDb(ctx).insert("requests", { source: item.source, externalSourceId: item.externalSourceId, status: normalize(item.status) as any, contactName: item.contactName || "Contact à identifier", contactEmail: item.contactEmail, contactPhone: item.contactPhone, organizationName: item.organizationName, eventType: item.eventType, eventDate: noonUtc(item.eventDate), eventStartTime: item.eventStartTime, eventEndTime: item.eventEndTime, venue: item.venue, eventAddress: item.eventAddress, guestCount: item.guestCount, budgetCents: item.budgetCents, quoteNumber: item.quoteNumber, quoteAmountCents: item.quoteAmountCents, nextActionAt: item.nextActionAt, missingInformation: [], archivedAt: item.archived ? now : undefined, createdAt: now, updatedAt: now });
     await ctx.db.insert("requestHistory", { requestId, label: `Import historique (${item.legacyId})`, createdAt: now, importKey: `${item.legacyId}:history` });
     if (item.notes) await ctx.db.insert("requestNotes", { requestId, content: item.notes, createdAt: now, importKey: `${item.legacyId}:notes` });
     if (item.nextActionAt && item.nextActionTitle) await ctx.db.insert("followUpTasks", { requestId, kind: "manuel", title: item.nextActionTitle, dueAt: item.nextActionAt, createdAt: now });

@@ -1,3 +1,4 @@
+import { requestEmails } from "./customerEmailData";
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 
@@ -15,7 +16,7 @@ export const load = internalQuery({
       const [events, quotes, messages] = await Promise.all([
         ctx.db.query("requestEvents").withIndex("by_requestId_and_date", q => q.eq("requestId", request._id)).take(30),
         ctx.db.query("quotes").withIndex("by_requestId", q => q.eq("requestId", request._id)).take(5),
-        ctx.db.query("emailMessages").withIndex("by_requestId_and_sentAt", q => q.eq("requestId", request._id)).order("desc").take(5),
+        requestEmails(ctx, request._id).then(messages => messages.slice(-5).reverse()),
       ]);
       context.push({ request, events, quotes, messages });
     }

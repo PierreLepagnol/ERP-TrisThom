@@ -23,6 +23,9 @@ const app = defineApp({
     ENABLE_EMAIL_IMPORT: v.optional(v.string()),
     OPENAI_API_KEY: v.optional(v.string()),
     OPENAI_MODEL: v.optional(v.string()),
+    GOOGLE_CALENDAR_ID: v.optional(v.string()),
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: v.optional(v.string()),
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: v.optional(v.string()),
   },
 });
 app.use(betterAuth);

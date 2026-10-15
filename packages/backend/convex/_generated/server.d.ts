@@ -32,6 +32,9 @@ type Env = {
   readonly DIRECTUS_STATIC_TOKEN: string | undefined;
   readonly DIRECTUS_WEBHOOK_SECRET: string | undefined;
   readonly ENABLE_EMAIL_IMPORT: string | undefined;
+  readonly GOOGLE_CALENDAR_ID: string | undefined;
+  readonly GOOGLE_SERVICE_ACCOUNT_EMAIL: string | undefined;
+  readonly GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: string | undefined;
   readonly IMAP_HOST: string;
   readonly IMAP_PORT: string;
   readonly IMAP_SECURE: string;

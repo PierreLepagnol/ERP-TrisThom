@@ -8,6 +8,12 @@ export type DirectusRequest = {
   eventAddress?: string;
   guestCount?: number;
   message?: string;
+  cateringFormat?: string;
+  format?: string;
+  adminNotes?: string;
+  siteStatus?: string;
+  siteCreatedAt?: string;
+  quotedAmount?: number;
 };
 
 export type WebhookAudit = {
@@ -129,11 +135,17 @@ export function parseDirectusQuoteRequest(body: unknown): DirectusRequest | unde
     contactName: asString(record.name) ?? "Contact à identifier",
     contactEmail: asString(record.email),
     contactPhone: asString(record.phone),
-    eventType: asString(record.catering_format ?? record.format),
+    eventType: asString(record.catering_format) ?? asString(record.format),
     eventDate: asDate(record.event_date),
     eventAddress: asString(record.event_address),
     guestCount: asNumber(record.guest_count),
-    message: asString(record.message),
+    message: typeof record.message === "string" ? record.message : undefined,
+    cateringFormat: asString(record.catering_format),
+    format: asString(record.format),
+    adminNotes: typeof record.admin_notes === "string" ? record.admin_notes : undefined,
+    siteStatus: asString(record.status),
+    siteCreatedAt: asString(record.date_created),
+    quotedAmount: asNumber(record.quoted_amount),
   };
 }
 

@@ -1,3 +1,4 @@
+import { calendarDb } from "./googleCalendarTracking";
 import { v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -93,7 +94,7 @@ export const apply = internalMutation({
     const now = Date.now();
     const requestIds = [];
     for (const { entry, request } of pending) {
-      const requestId = await ctx.db.insert("requests", { ...request, createdAt: now, updatedAt: now });
+      const requestId = await calendarDb(ctx).insert("requests", { ...request, createdAt: now, updatedAt: now });
       await ctx.db.insert("requestHistory", { requestId, label: "Dossier repris depuis le planning production octobre 2026", createdAt: now });
       if (entry.note) await ctx.db.insert("requestNotes", { requestId, content: entry.note, createdAt: now });
       requestIds.push(requestId);

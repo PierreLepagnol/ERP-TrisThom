@@ -1,3 +1,4 @@
+import { calendarDb } from "./googleCalendarTracking";
 import { v } from "convex/values";
 
 import { authComponent } from "./auth";
@@ -35,7 +36,7 @@ export const decide = mutation({
         ? Number(suggestion.proposedValue)
         : suggestion.proposedValue;
       if (typeof value === "number" && !Number.isFinite(value)) throw new Error("Valeur proposée invalide.");
-      await ctx.db.patch(request._id, { [field]: value, updatedAt: now });
+      await calendarDb(ctx).patch(request._id, { [field]: value, updatedAt: now });
       await ctx.db.patch(suggestion._id, { status: "applied" });
       await ctx.db.insert("requestHistory", { requestId: request._id, label: `Modification appliquée : ${suggestion.field}`, createdAt: now });
     } else {

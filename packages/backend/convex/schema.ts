@@ -88,6 +88,29 @@ export default defineSchema({
     .index("by_contactEmail", ["contactEmail"])
     .index("by_source_and_externalSourceId", ["source", "externalSourceId"]),
 
+  // Private, durable reservation for the single manually authorized Calendar test.
+  googleCalendarTestAttempts: defineTable({
+    externalSourceId: v.string(),
+    requestId: v.id("requests"),
+    calendarFingerprint: v.string(),
+    attemptedAt: v.number(),
+  }).index("by_externalSourceId", ["externalSourceId"]),
+
+  googleCalendarSyncStates: defineTable({
+    requestId: v.id("requests"),
+    eventId: v.string(),
+    calendarFingerprint: v.string(),
+    creationAttempted: v.boolean(),
+    removedByErp: v.optional(v.boolean()),
+  }).index("by_requestId", ["requestId"]),
+
+  // Disabled until an explicit internal enable call. No credentials stored here.
+  googleCalendarAutomation: defineTable({ enabled: v.boolean(), cursor: v.optional(v.string()) }),
+  googleCalendarJobs: defineTable({
+    requestId: v.id("requests"), revision: v.number(), attempt: v.number(), dueAt: v.number(),
+    status: v.union(v.literal("pending"), v.literal("running"), v.literal("synced"), v.literal("ignored"), v.literal("failed")),
+    leaseUntil: v.optional(v.number()), lastSnapshot: v.optional(v.string()), message: v.optional(v.string()),
+  }).index("by_requestId", ["requestId"]).index("by_dueAt", ["dueAt"]),
   webhookAuditLogs: defineTable({
     webhook: v.literal("directus_quote_request"),
     receivedAt: v.number(),
@@ -113,7 +136,9 @@ export default defineSchema({
 
   inboxMessages: defineTable({
     source: v.optional(requestSource),
-    sourceData: v.optional(v.object({ contactName: v.string(), contactEmail: v.optional(v.string()), contactPhone: v.optional(v.string()), eventType: v.optional(v.string()), eventDate: v.optional(v.number()), eventAddress: v.optional(v.string()), guestCount: v.optional(v.number()), message: v.optional(v.string()) })),
+    creationToken: v.optional(v.string()),
+    creationFingerprint: v.optional(v.string()),
+    sourceData: v.optional(v.object({ contactName: v.string(), contactEmail: v.optional(v.string()), contactPhone: v.optional(v.string()), eventType: v.optional(v.string()), eventDate: v.optional(v.number()), eventAddress: v.optional(v.string()), guestCount: v.optional(v.number()), message: v.optional(v.string()), cateringFormat: v.optional(v.string()), format: v.optional(v.string()), adminNotes: v.optional(v.string()), siteStatus: v.optional(v.string()), siteCreatedAt: v.optional(v.string()), quotedAmount: v.optional(v.number()) })),
     externalId: v.string(),
     messageId: v.optional(v.string()),
     senderName: v.optional(v.string()),
@@ -136,6 +161,17 @@ export default defineSchema({
   requestEvents: defineTable({
     requestId: v.id("requests"), label: v.string(), date: v.optional(v.number()), startTime: v.optional(v.string()), endTime: v.optional(v.string()), address: v.optional(v.string()), guestCount: v.optional(v.number()), serviceType: v.optional(v.string()), format: v.optional(v.string()), notes: v.optional(v.string()), status: v.union(v.literal("prevue"), v.literal("terminee"), v.literal("demandee"), v.literal("potentielle"), v.literal("confirmee"), v.literal("annulee")), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_requestId_and_date", ["requestId", "date"]),
+
+  // One received message, many independent requests. Legacy requestId remains the primary link.
+  inboxRequestLinks: defineTable({
+    inboxMessageId: v.id("inboxMessages"),
+    requestId: v.id("requests"),
+    emailMessageId: v.optional(v.id("emailMessages")),
+    position: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_inboxMessageId_and_requestId", ["inboxMessageId", "requestId"])
+    .index("by_requestId", ["requestId"])
+    .index("by_emailMessageId", ["emailMessageId"]),
 
   inboxAnalyses: defineTable({
     inboxMessageId: v.id("inboxMessages"), status: v.union(v.literal("pending_analysis"), v.literal("analyzed"), v.literal("analysis_failed"), v.literal("applied")), summary: v.optional(v.string()), messageType: v.optional(v.string()), plan: v.optional(v.string()), acceptedPlan: v.optional(v.string()), model: v.optional(v.string()), error: v.optional(v.string()), analyzedAt: v.optional(v.number()), appliedAt: v.optional(v.number()), createdAt: v.number(), updatedAt: v.number(),

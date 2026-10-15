@@ -103,3 +103,9 @@ test("audits an internal ingestion failure without persisting personal data", as
   expect(app.audits[0]).toEqual(expect.objectContaining({ outcome: "failure", directusItemId: "directus-42", reason: "Request ingestion failed" }));
   expect(JSON.stringify(app.audits)).not.toContain("Ada Lovelace");
 });
+
+test("preserves site formats and administrative metadata separately from the client message", async () => {
+  const app = harness({ bodyText: JSON.stringify({ id: "site-full", name: "Client", message: "Texte original\navec détails", catering_format: "Buffet", format: "Livraison", admin_notes: "Rappeler lundi", status: "new", date_created: "2026-10-10T12:00:00Z", quoted_amount: "1200" }) });
+  await app.run();
+  expect(app.requests.get("site-full")).toMatchObject({ cateringFormat: "Buffet", format: "Livraison", adminNotes: "Rappeler lundi", siteStatus: "new", siteCreatedAt: "2026-10-10T12:00:00Z", quotedAmount: 1200, message: "Texte original\navec détails" });
+});

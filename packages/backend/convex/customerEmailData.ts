@@ -1,3 +1,5 @@
+import type { Doc, Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 import { authComponent } from "./auth";
@@ -9,10 +11,7 @@ export const listForRequest = query({
     if (!await authComponent.safeGetAuthUser(ctx)) {
       throw new Error("Vous devez être connecté.");
     }
-    return await ctx.db
-      .query("emailMessages")
-      .withIndex("by_requestId_and_sentAt", (index) => index.eq("requestId", requestId))
-      .collect();
+    return await requestEmails(ctx, requestId);
   },
 });
 
@@ -48,3 +47,13 @@ export const recordOutgoing = internalMutation({
     await ctx.db.patch(args.requestId, { updatedAt: args.sentAt });
   },
 });
+
+// Shared received messages retain their real messageId and are stored only once.
+export async function requestEmails(ctx: QueryCtx, requestId: Id<"requests">) {
+  const direct = await ctx.db.query("emailMessages").withIndex("by_requestId_and_sentAt", q => q.eq("requestId", requestId)).order("desc").take(500);
+  const links = await ctx.db.query("inboxRequestLinks").withIndex("by_requestId", q => q.eq("requestId", requestId)).take(500);
+  const shared = await Promise.all(links.map(link => link.emailMessageId ? ctx.db.get(link.emailMessageId) : null));
+  const unique = new Map<string, Doc<"emailMessages">>();
+  for (const message of [...direct, ...shared]) if (message) unique.set(message._id, message);
+  return [...unique.values()].sort((a, b) => a.sentAt - b.sentAt);
+}

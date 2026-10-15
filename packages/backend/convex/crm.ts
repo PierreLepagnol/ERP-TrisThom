@@ -1,3 +1,4 @@
+import { calendarDb } from "./googleCalendarTracking";
 import { v } from "convex/values";
 
 import { authComponent } from "./auth";
@@ -308,7 +309,7 @@ async function insertQuoteVersion(
 ) {
   if (input.lines.length > 200) throw new Error("Un devis ne peut pas dépasser 200 lignes.");
   const totals = quoteTotals(input.lines, input.discountCents);
-  const versionId = await ctx.db.insert("quoteVersions", {
+  const versionId = await calendarDb(ctx).insert("quoteVersions", {
     quoteId,
     versionNumber,
     status: input.status,
@@ -486,8 +487,9 @@ export const workspace = query({
     return {
       requests: requests.filter(isVisibleRequest).map((request) => {
         const quote = quoteByRequest.get(request._id);
+        const { googleCalendarEventId, ...publicRequest } = request;
         return {
-          ...request,
+          ...publicRequest,
           notes: (notesByRequest.get(request._id) ?? []).map((note) => ({
             id: note._id,
             content: note.content,
@@ -547,7 +549,7 @@ export const createRequest = mutation({
     const now = Date.now();
     const { historyLabel, ...requestInput } = args;
     const contactName = requestInput.contactName.trim() || "Contact à identifier";
-    const requestId = await ctx.db.insert("requests", {
+    const requestId = await calendarDb(ctx).insert("requests", {
       ...requestInput,
       contactName,
       status: "nouveau",
@@ -571,7 +573,7 @@ export const updateStatus = mutation({
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
     const now = Date.now();
-    await ctx.db.patch(request._id, {
+    await calendarDb(ctx).patch(request._id, {
       status: args.status,
       eventStartTime: args.eventStartTime ?? request.eventStartTime,
       eventEndTime: args.eventEndTime ?? request.eventEndTime,
@@ -627,7 +629,7 @@ export const reopenCancelledRequest = mutation({
       throw new Error("Un devis envoyé, la date et les horaires sont obligatoires avant confirmation.");
     }
     const now = Date.now();
-    await ctx.db.patch(request._id, {
+    await calendarDb(ctx).patch(request._id, {
       status: args.status,
       archivedAt: undefined,
       missingInformation,
@@ -668,7 +670,7 @@ export const updateRequest = mutation({
     );
     const next = { ...request, ...changes };
     const now = Date.now();
-    await ctx.db.patch(request._id, {
+    await calendarDb(ctx).patch(request._id, {
       ...changes,
       missingInformation: findMissingInformation(next),
       updatedAt: now,
@@ -689,7 +691,7 @@ export const qualifyRequest = mutation({
       throw new Error("La demande ne peut pas être qualifiée depuis son statut actuel.");
     }
     const now = Date.now();
-    await ctx.db.patch(request._id, { status: "qualifie", missingInformation: [], updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { status: "qualifie", missingInformation: [], updatedAt: now });
     await addHistory(ctx, request._id, "Demande qualifiée", now);
     return null;
   },
@@ -704,7 +706,7 @@ export const addNote = mutation({
     if (!content) throw new Error("La note ne peut pas être vide.");
     const now = Date.now();
     await ctx.db.insert("requestNotes", { requestId: request._id, content, createdAt: now });
-    await ctx.db.patch(request._id, { updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { updatedAt: now });
     await addHistory(ctx, request._id, "Note interne ajoutée", now);
     return null;
   },
@@ -716,7 +718,7 @@ export const markHandled = mutation({
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
     const now = Date.now();
-    await ctx.db.patch(request._id, { handledAt: now, updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { handledAt: now, updatedAt: now });
     await addHistory(ctx, request._id, "Demande marquée comme traitée", now);
     return null;
   },
@@ -731,7 +733,7 @@ export const startQuotePreparation = mutation({
       throw new Error("Ce dossier ne peut plus ouvrir un devis.");
     }
     const now = Date.now();
-    await ctx.db.patch(request._id, { status: "devis_a_preparer", missingInformation: findMissingInformation(request), updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { status: "devis_a_preparer", missingInformation: findMissingInformation(request), updatedAt: now });
     if (request.status !== "devis_a_preparer") {
       await addHistory(ctx, request._id, "Préparation du devis commencée", now);
     }
@@ -756,7 +758,7 @@ export const scheduleFollowUp = mutation({
       dueAt: args.dueAt,
       createdAt: now,
     });
-    await ctx.db.patch(request._id, { updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { updatedAt: now });
     await addHistory(ctx, request._id, "Relance programmée", now);
     return null;
   },
@@ -773,7 +775,7 @@ export const closeRequest = mutation({
     const reason = args.reason.trim();
     if (!reason) throw new Error("Un motif est obligatoire.");
     const now = Date.now();
-    await ctx.db.patch(request._id, { status: args.status, updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { status: args.status, updatedAt: now });
     await ctx.db.insert("requestNotes", {
       requestId: request._id,
       content: `${args.status === "refuse" ? "Refus" : "Annulation"} : ${reason}`,
@@ -790,7 +792,7 @@ export const archiveRequest = mutation({
     await requireAuthenticatedUser(ctx);
     const request = await getRequestOrThrow(ctx, args.requestId);
     const now = Date.now();
-    await ctx.db.patch(request._id, { archivedAt: args.archived ? now : undefined, updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { archivedAt: args.archived ? now : undefined, updatedAt: now });
     await addHistory(ctx, request._id, args.archived ? "Dossier archivé" : "Dossier désarchivé", now);
     return null;
   },
@@ -805,7 +807,7 @@ export const completeFollowUp = mutation({
     if (!task || task.requestId !== args.requestId) throw new Error("Rappel introuvable.");
     const now = Date.now();
     await ctx.db.patch(task._id, { completedAt: now });
-    await ctx.db.patch(args.requestId, { updatedAt: now });
+    await calendarDb(ctx).patch(args.requestId, { updatedAt: now });
     await addHistory(ctx, args.requestId, "Relance marquée comme effectuée", now);
     return null;
   },
@@ -820,7 +822,7 @@ export const deleteFollowUp = mutation({
     if (!task || task.requestId !== args.requestId) throw new Error("Rappel introuvable.");
     const now = Date.now();
     await ctx.db.delete(task._id);
-    await ctx.db.patch(args.requestId, { updatedAt: now });
+    await calendarDb(ctx).patch(args.requestId, { updatedAt: now });
     await addHistory(ctx, args.requestId, "Rappel supprimé", now);
     return null;
   },
@@ -835,7 +837,7 @@ async function saveQuoteRecord(ctx: MutationCtx, request: Doc<"requests">, input
   const now = Date.now();
   if (!existing) {
     const number = input.number ?? `D-${new Date(now).getFullYear()}-${request._id.slice(-6).toUpperCase()}`;
-    const quoteId = await ctx.db.insert("quotes", {
+    const quoteId = await calendarDb(ctx).insert("quotes", {
       requestId: request._id,
       quoteNumber: number,
       status: input.status,
@@ -847,7 +849,7 @@ async function saveQuoteRecord(ctx: MutationCtx, request: Doc<"requests">, input
       totalTtcCents: 0,
     });
     const { versionId, totals } = await insertQuoteVersion(ctx, quoteId, { ...input, updatedAt: now }, 1, now);
-    await ctx.db.patch(quoteId, { currentVersionId: versionId, ...totals });
+    await calendarDb(ctx).patch(quoteId, { currentVersionId: versionId, ...totals });
     return { quoteId, versionId, number, totals };
   }
   const currentVersion = existing.currentVersionId ? await ctx.db.get(existing.currentVersionId) : null;
@@ -858,7 +860,7 @@ async function saveQuoteRecord(ctx: MutationCtx, request: Doc<"requests">, input
     .take(200);
   await Promise.all(oldLines.map((line) => ctx.db.delete(line._id)));
   const totals = quoteTotals(input.lines, input.discountCents);
-  await ctx.db.patch(currentVersion._id, {
+  await calendarDb(ctx).patch(currentVersion._id, {
     status: input.status,
     updatedAt: now,
     sentAt: input.status === "envoye" ? currentVersion.sentAt ?? now : currentVersion.sentAt,
@@ -884,7 +886,7 @@ async function saveQuoteRecord(ctx: MutationCtx, request: Doc<"requests">, input
     vatRate: line.vatRate,
     details: line.details,
   })));
-  await ctx.db.patch(existing._id, {
+  await calendarDb(ctx).patch(existing._id, {
     status: input.status,
     updatedAt: now,
     sentAt: input.status === "envoye" ? existing.sentAt ?? now : existing.sentAt,
@@ -901,7 +903,7 @@ export const saveQuote = mutation({
     const now = Date.now();
     const stored = await saveQuoteRecord(ctx, request, args.quote as LocalQuoteInput);
     const sent = args.quote.status === "envoye";
-    await ctx.db.patch(request._id, {
+    await calendarDb(ctx).patch(request._id, {
       status: sent ? "devis_envoye" : request.status,
       quoteNumber: stored.number,
       quoteAmountCents: stored.totals.totalTtcCents,
@@ -930,7 +932,7 @@ export const createQuoteVersion = mutation({
         status: "brouillon",
         updatedAt: now,
       });
-      await ctx.db.patch(request._id, {
+      await calendarDb(ctx).patch(request._id, {
         quoteNumber: stored.number,
         quoteAmountCents: stored.totals.totalTtcCents,
         updatedAt: now,
@@ -945,7 +947,7 @@ export const createQuoteVersion = mutation({
       const versionNumber = Math.max(0, ...versions.map((version) => version.versionNumber)) + 1;
       const input = { ...(args.quote as LocalQuoteInput), status: "brouillon" as const, updatedAt: now };
       const { versionId, totals } = await insertQuoteVersion(ctx, existing._id, input, versionNumber, now);
-      await ctx.db.patch(existing._id, {
+      await calendarDb(ctx).patch(existing._id, {
         currentVersionId: versionId,
         status: "brouillon",
         sentAt: undefined,
@@ -953,7 +955,7 @@ export const createQuoteVersion = mutation({
         updatedAt: now,
         ...totals,
       });
-      await ctx.db.patch(request._id, { quoteAmountCents: totals.totalTtcCents, updatedAt: now });
+      await calendarDb(ctx).patch(request._id, { quoteAmountCents: totals.totalTtcCents, updatedAt: now });
       await addHistory(ctx, request._id, `Nouvelle version du devis ${existing.quoteNumber} créée`, now);
     }
     return await loadLocalQuote(ctx, request._id);
@@ -1041,8 +1043,8 @@ export const restoreQuoteVersion = mutation({
     };
     const versionNumber = Math.max(...versions.map((version) => version.versionNumber)) + 1;
     const { versionId, totals } = await insertQuoteVersion(ctx, quote._id, input, versionNumber, now);
-    await ctx.db.patch(quote._id, { currentVersionId: versionId, status: "brouillon", updatedAt: now, ...totals });
-    await ctx.db.patch(request._id, { quoteAmountCents: totals.totalTtcCents, updatedAt: now });
+    await calendarDb(ctx).patch(quote._id, { currentVersionId: versionId, status: "brouillon", updatedAt: now, ...totals });
+    await calendarDb(ctx).patch(request._id, { quoteAmountCents: totals.totalTtcCents, updatedAt: now });
     await addHistory(ctx, request._id, `Nouvelle version du devis ${quote.quoteNumber} créée`, now);
     return await loadLocalQuote(ctx, request._id);
   },
@@ -1074,13 +1076,13 @@ export const deleteQuoteVersion = mutation({
       .withIndex("by_quoteVersionId_and_position", (index) => index.eq("quoteVersionId", version._id))
       .take(200);
     await Promise.all(lines.map((line) => ctx.db.delete(line._id)));
-    await ctx.db.delete(version._id);
+    await calendarDb(ctx).delete(version._id);
 
     const remaining = versions.filter((item) => item._id !== version._id);
     const now = Date.now();
     if (remaining.length === 0) {
-      await ctx.db.delete(quote._id);
-      await ctx.db.patch(request._id, {
+      await calendarDb(ctx).delete(quote._id);
+      await calendarDb(ctx).patch(request._id, {
         status: request.missingInformation.length ? "a_qualifier" : "devis_a_preparer",
         quoteNumber: undefined,
         quoteAmountCents: undefined,
@@ -1093,7 +1095,7 @@ export const deleteQuoteVersion = mutation({
     const current = version._id === quote.currentVersionId
       ? [...remaining].sort((left, right) => right.versionNumber - left.versionNumber)[0]!
       : remaining.find((item) => item._id === quote.currentVersionId) ?? remaining[remaining.length - 1]!;
-    await ctx.db.patch(quote._id, {
+    await calendarDb(ctx).patch(quote._id, {
       currentVersionId: current._id,
       status: current.status,
       sentAt: current.sentAt,
@@ -1103,7 +1105,7 @@ export const deleteQuoteVersion = mutation({
       totalTtcCents: current.totalTtcCents,
       updatedAt: now,
     });
-    await ctx.db.patch(request._id, {
+    await calendarDb(ctx).patch(request._id, {
       status: current.status === "envoye" ? "devis_envoye" : current.status === "accepte" ? "accepte" : request.status,
       acceptedAt: current.status === "accepte" ? quote.acceptedAt : undefined,
       quoteAmountCents: current.totalTtcCents,
@@ -1125,9 +1127,9 @@ export const markQuoteSent = mutation({
     const version = await ctx.db.get(quote.currentVersionId);
     if (!version) throw new Error("Version de devis introuvable.");
     const now = Date.now();
-    await ctx.db.patch(version._id, { status: "envoye", sentAt: now, updatedAt: now });
-    await ctx.db.patch(quote._id, { status: "envoye", sentAt: now, updatedAt: now });
-    await ctx.db.patch(request._id, { status: "devis_envoye", quoteAmountCents: quote.totalTtcCents, nextActionAt: now + 3 * 86_400_000, updatedAt: now });
+    await calendarDb(ctx).patch(version._id, { status: "envoye", sentAt: now, updatedAt: now });
+    await calendarDb(ctx).patch(quote._id, { status: "envoye", sentAt: now, updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { status: "devis_envoye", quoteAmountCents: quote.totalTtcCents, nextActionAt: now + 3 * 86_400_000, updatedAt: now });
     await createFollowUps(ctx, request, now);
     await addHistory(ctx, request._id, `Devis ${quote.quoteNumber} marqué comme envoyé`, now);
     return null;
@@ -1148,9 +1150,9 @@ export const confirmService = mutation({
     const version = await ctx.db.get(quote.currentVersionId);
     if (!version) throw new Error("Version de devis introuvable.");
     const now = Date.now();
-    await ctx.db.patch(version._id, { status: "accepte", updatedAt: now });
-    await ctx.db.patch(quote._id, { status: "accepte", acceptedAt: now, updatedAt: now });
-    await ctx.db.patch(request._id, { status: "accepte", acceptedAt: now, handledAt: now, quoteAmountCents: quote.totalTtcCents, calendarSyncStatus: "pending", updatedAt: now });
+    await calendarDb(ctx).patch(version._id, { status: "accepte", updatedAt: now });
+    await calendarDb(ctx).patch(quote._id, { status: "accepte", acceptedAt: now, updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { status: "accepte", acceptedAt: now, handledAt: now, quoteAmountCents: quote.totalTtcCents, calendarSyncStatus: "pending", updatedAt: now });
     await addHistory(ctx, request._id, "Prestation confirmée après acceptation du devis", now);
     return null;
   },
@@ -1187,7 +1189,7 @@ export const deleteRequest = mutation({
     const request = await getRequestOrThrow(ctx, args.requestId);
     if (request.deletedAt) return null;
     const now = Date.now();
-    await ctx.db.patch(request._id, { deletedAt: now, updatedAt: now });
+    await calendarDb(ctx).patch(request._id, { deletedAt: now, updatedAt: now });
     await addHistory(ctx, request._id, "Demande supprimée", now);
     return null;
   },
@@ -1262,17 +1264,17 @@ export const removeDemoRequests = mutation({
         ctx.db.query("followUpTasks").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).take(100),
         ctx.db.query("quotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).unique(),
       ]);
-      for (const row of [...notes, ...history, ...followUps]) await ctx.db.delete(row._id);
+      for (const row of [...notes, ...history, ...followUps]) await calendarDb(ctx).delete(row._id);
       if (quote) {
         const versions = await ctx.db.query("quoteVersions").withIndex("by_quoteId_and_versionNumber", (index) => index.eq("quoteId", quote._id)).take(100);
         for (const version of versions) {
           const lines = await ctx.db.query("quoteLines").withIndex("by_quoteVersionId_and_position", (index) => index.eq("quoteVersionId", version._id)).take(200);
           for (const line of lines) await ctx.db.delete(line._id);
-          await ctx.db.delete(version._id);
+          await calendarDb(ctx).delete(version._id);
         }
-        await ctx.db.delete(quote._id);
+        await calendarDb(ctx).delete(quote._id);
       }
-      await ctx.db.delete(request._id);
+      await calendarDb(ctx).delete(request._id);
     }
     return { removedRequestCount: demoRequests.length };
   },
@@ -1293,17 +1295,17 @@ export const clearAllRequests = mutation({
         ctx.db.query("emailMessages").withIndex("by_requestId_and_sentAt", (index) => index.eq("requestId", request._id)).take(500),
         ctx.db.query("quotes").withIndex("by_requestId", (index) => index.eq("requestId", request._id)).unique(),
       ]);
-      for (const row of [...notes, ...history, ...followUps, ...messages]) await ctx.db.delete(row._id);
+      for (const row of [...notes, ...history, ...followUps, ...messages]) await calendarDb(ctx).delete(row._id);
       if (quote) {
         const versions = await ctx.db.query("quoteVersions").withIndex("by_quoteId_and_versionNumber", (index) => index.eq("quoteId", quote._id)).take(500);
         for (const version of versions) {
           const lines = await ctx.db.query("quoteLines").withIndex("by_quoteVersionId_and_position", (index) => index.eq("quoteVersionId", version._id)).take(500);
           for (const line of lines) await ctx.db.delete(line._id);
-          await ctx.db.delete(version._id);
+          await calendarDb(ctx).delete(version._id);
         }
-        await ctx.db.delete(quote._id);
+        await calendarDb(ctx).delete(quote._id);
       }
-      await ctx.db.delete(request._id);
+      await calendarDb(ctx).delete(request._id);
     }
     // Keep message ids so the mailbox poller does not import old test e-mails again.
     const inboxMessages = await ctx.db.query("inboxMessages").take(1_000);
@@ -1314,7 +1316,7 @@ export const clearAllRequests = mutation({
 
 async function clearTable(ctx: MutationCtx, table: "requestNotes" | "requestHistory" | "followUpTasks" | "quoteLines" | "quoteVersions" | "quotes" | "requests" | "catalogItems") {
   const rows = await ctx.db.query(table).take(5_000);
-  await Promise.all(rows.map((row) => ctx.db.delete(row._id)));
+  await Promise.all(rows.map((row) => calendarDb(ctx).delete(row._id)));
 }
 
 export const resetDemoData = mutation({
@@ -1342,7 +1344,7 @@ export const resetDemoData = mutation({
     const requestIds = new Map<string, Id<"requests">>();
     for (const input of args.requests) {
       const { _id, followUps, notes, history, quote, ...request } = input;
-      const requestId = await ctx.db.insert("requests", request);
+      const requestId = await calendarDb(ctx).insert("requests", request);
       requestIds.set(_id, requestId);
       await Promise.all(notes.map((note) => ctx.db.insert("requestNotes", { requestId, content: note.content, createdAt: note.createdAt })));
       await Promise.all(history.map((entry) => ctx.db.insert("requestHistory", { requestId, label: entry.label, createdAt: entry.createdAt })));
@@ -1355,7 +1357,7 @@ export const resetDemoData = mutation({
         createdAt: request.createdAt,
       })));
       if (quote) {
-        const quoteId = await ctx.db.insert("quotes", {
+        const quoteId = await calendarDb(ctx).insert("quotes", {
           requestId,
           quoteNumber: quote.number ?? `D-${new Date(request.createdAt).getFullYear()}-${requestId.slice(-6).toUpperCase()}`,
           status: quote.status,
@@ -1368,8 +1370,8 @@ export const resetDemoData = mutation({
           totalTtcCents: 0,
         });
         const { versionId, totals } = await insertQuoteVersion(ctx, quoteId, quote as LocalQuoteInput, quote.version, request.createdAt);
-        await ctx.db.patch(quoteId, { currentVersionId: versionId, ...totals });
-        await ctx.db.patch(requestId, { quoteNumber: quote.number, quoteAmountCents: totals.totalTtcCents });
+        await calendarDb(ctx).patch(quoteId, { currentVersionId: versionId, ...totals });
+        await calendarDb(ctx).patch(requestId, { quoteNumber: quote.number, quoteAmountCents: totals.totalTtcCents });
       }
     }
     const now = Date.now();

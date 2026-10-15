@@ -1,3 +1,4 @@
+import { requestEmails } from "./customerEmailData";
 import { v } from "convex/values";
 import { authComponent } from "./auth";
 import { query } from "./_generated/server";
@@ -14,11 +15,12 @@ async function loadRequestContext(ctx: QueryCtx, requestId: Id<"requests">) {
   const [events, quotes, emails, notes, history] = await Promise.all([
     ctx.db.query("requestEvents").withIndex("by_requestId_and_date", q => q.eq("requestId", requestId)).take(50),
     ctx.db.query("quotes").withIndex("by_requestId", q => q.eq("requestId", requestId)).take(20),
-    ctx.db.query("emailMessages").withIndex("by_requestId_and_sentAt", q => q.eq("requestId", requestId)).order("desc").take(5),
+    requestEmails(ctx, requestId).then(messages => messages.slice(-5).reverse()),
     ctx.db.query("requestNotes").withIndex("by_requestId", q => q.eq("requestId", requestId)).order("desc").take(10),
     ctx.db.query("requestHistory").withIndex("by_requestId", q => q.eq("requestId", requestId)).order("desc").take(15),
   ]);
-  return { request, events, quotes, emails, notes, history };
+  const { googleCalendarEventId, ...publicRequest } = request;
+  return { request: publicRequest, events, quotes, emails, notes, history };
 }
 
 export const listPendingEntries = query({

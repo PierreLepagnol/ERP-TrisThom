@@ -14,6 +14,12 @@ export const ingestRequest = internalMutation({
     eventAddress: v.optional(v.string()),
     guestCount: v.optional(v.number()),
     message: v.optional(v.string()),
+    cateringFormat: v.optional(v.string()),
+    format: v.optional(v.string()),
+    adminNotes: v.optional(v.string()),
+    siteStatus: v.optional(v.string()),
+    siteCreatedAt: v.optional(v.string()),
+    quotedAmount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existingRequest = await ctx.db

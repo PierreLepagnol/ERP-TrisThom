@@ -43,7 +43,11 @@ export const recordMessage = internalMutation({
       ? await ctx.db.query("emailMessages").withIndex("by_messageId", (index) => index.eq("messageId", args.inReplyTo!)).unique()
       : null;
 
-    if (threaded) {
+    // A reply to a shared incoming email is ambiguous; leave it in Entrées for human routing.
+    const sharedTargets = threaded
+      ? await ctx.db.query("inboxRequestLinks").withIndex("by_emailMessageId", q => q.eq("emailMessageId", threaded._id)).take(2)
+      : [];
+    if (threaded && new Set([threaded.requestId, ...sharedTargets.map(link => link.requestId)]).size < 2) {
       await ctx.db.insert("inboxMessages", {
         externalId: args.externalId, messageId: args.messageId, senderName: args.senderName, senderEmail: args.senderEmail,
         subject: args.subject, receivedAt: args.receivedAt, textPreview: args.text?.slice(0, 1_000), body: args.text?.slice(0, 20_000),
